@@ -1,0 +1,275 @@
+"use client";
+
+import { useCallback, useEffect, useRef, useState } from "react";
+import { Brush, Eraser, Redo2, Trash2, Undo2 } from "lucide-react";
+import type { LanternVisual } from "@/types/lantern";
+import { buildFaceTextures, ensureLanternFonts, loadImage, TEX_H, TEX_W } from "@/lib/lantern/texture";
+import { Button } from "@/components/ui/button";
+import { Slider } from "@/components/ui/slider";
+import { cn } from "@/lib/utils";
+import { paintPaper } from "./face-paper";
+
+const PEN_COLORS = ["#5b2d0c", "#b4232c", "#e0457b", "#f08c00", "#1b6e3c", "#1b3f8a", "#6b2fa0", "#000000", "#ffffff"];
+const MAX_HISTORY = 30;
+
+interface Props {
+  /** Lantern content shown underneath (text + image), without the drawing itself */
+  visual: LanternVisual;
+  value: string | null;
+  onChange: (dataUrl: string | null) => void;
+}
+
+/**
+ * Freehand drawing directly on the front face of the lantern.
+ * Supports mouse, touch and pen (pressure), with undo / redo / clear.
+ */
+export function DrawingPad({ visual, value, onChange }: Props) {
+  const baseRef = useRef<HTMLCanvasElement>(null);
+  const drawRef = useRef<HTMLCanvasElement>(null);
+  const [tool, setTool] = useState<"pen" | "eraser">("pen");
+  const [color, setColor] = useState(PEN_COLORS[1]);
+  const [size, setSize] = useState(8);
+  const undoStack = useRef<ImageData[]>([]);
+  const redoStack = useRef<ImageData[]>([]);
+  const [history, setHistory] = useState({ undo: 0, redo: 0 });
+  const syncHistory = () => setHistory({ undo: undoStack.current.length, redo: redoStack.current.length });
+  const drawing = useRef(false);
+  const last = useRef<{ x: number; y: number; mx: number; my: number } | null>(null);
+  const hasInk = useRef(Boolean(value));
+  const initialValue = useRef(value);
+
+  // base layer: paper + text + image (WYSIWYG with the lantern)
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      await ensureLanternFonts([visual.textConfig.font]);
+      const image = visual.imageSrc ? await loadImage(visual.imageSrc).catch(() => null) : null;
+      const tex = buildFaceTextures({ ...visual, drawingSrc: null }, { image });
+      const c = baseRef.current;
+      if (cancelled || !c) return;
+      const ctx = c.getContext("2d")!;
+      paintPaper(ctx, visual.design, visual.color);
+      ctx.drawImage(tex.front, 0, 0);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [visual]);
+
+  const ctx = () => drawRef.current!.getContext("2d", { willReadFrequently: true })!;
+  const snapshot = () => ctx().getImageData(0, 0, TEX_W, TEX_H);
+
+  // load existing drawing once
+  useEffect(() => {
+    const c = drawRef.current;
+    if (!c) return;
+    const g = c.getContext("2d", { willReadFrequently: true })!;
+    g.clearRect(0, 0, TEX_W, TEX_H);
+    if (initialValue.current) {
+      loadImage(initialValue.current)
+        .then((img) => {
+          g.drawImage(img, 0, 0, TEX_W, TEX_H);
+          undoStack.current = [g.getImageData(0, 0, TEX_W, TEX_H)];
+          setHistory({ undo: 1, redo: 0 });
+        })
+        .catch(() => undefined);
+    } else {
+      undoStack.current = [g.getImageData(0, 0, TEX_W, TEX_H)];
+    }
+  }, []);
+
+  const emit = useCallback(() => {
+    onChange(hasInk.current ? drawRef.current!.toDataURL("image/png") : null);
+  }, [onChange]);
+
+  const pos = (e: React.PointerEvent | PointerEvent) => {
+    const r = drawRef.current!.getBoundingClientRect();
+    return { x: ((e.clientX - r.left) / r.width) * TEX_W, y: ((e.clientY - r.top) / r.height) * TEX_H };
+  };
+
+  const strokeTo = (x: number, y: number, pressure: number) => {
+    const g = ctx();
+    const p = last.current!;
+    const mx = (p.x + x) / 2;
+    const my = (p.y + y) / 2;
+    g.globalCompositeOperation = tool === "eraser" ? "destination-out" : "source-over";
+    g.strokeStyle = color;
+    g.lineCap = "round";
+    g.lineJoin = "round";
+    // pressure only matters for a stylus; mouse/touch draw at the chosen size
+    g.lineWidth = tool === "eraser" ? size * 2.5 : size * (pressure >= 0 ? 0.45 + pressure * 1.1 : 1);
+    g.beginPath();
+    g.moveTo(p.mx, p.my);
+    g.quadraticCurveTo(p.x, p.y, mx, my);
+    g.stroke();
+    last.current = { x, y, mx, my };
+  };
+
+  const onPointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    e.preventDefault();
+    e.currentTarget.setPointerCapture(e.pointerId);
+    drawing.current = true;
+    const { x, y } = pos(e);
+    last.current = { x, y, mx: x, my: y };
+    // dot for a single tap
+    const g = ctx();
+    g.globalCompositeOperation = tool === "eraser" ? "destination-out" : "source-over";
+    g.fillStyle = color;
+    g.beginPath();
+    g.arc(x, y, (tool === "eraser" ? size * 2.5 : size) / 2, 0, Math.PI * 2);
+    g.fill();
+  };
+
+  const onPointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    if (!drawing.current) return;
+    const events = e.nativeEvent.getCoalescedEvents?.() ?? [e.nativeEvent];
+    for (const ev of events.length ? events : [e.nativeEvent]) {
+      const { x, y } = pos(ev);
+      strokeTo(x, y, ev.pointerType === "pen" ? ev.pressure : -1);
+    }
+  };
+
+  const end = () => {
+    if (!drawing.current) return;
+    drawing.current = false;
+    last.current = null;
+    if (tool === "pen") hasInk.current = true;
+    undoStack.current.push(snapshot());
+    if (undoStack.current.length > MAX_HISTORY) undoStack.current.shift();
+    redoStack.current = [];
+    syncHistory();
+    emit();
+  };
+
+  const undo = () => {
+    if (undoStack.current.length <= 1) return;
+    redoStack.current.push(undoStack.current.pop()!);
+    ctx().putImageData(undoStack.current[undoStack.current.length - 1], 0, 0);
+    hasInk.current = undoStack.current.length > 1 || Boolean(initialValue.current);
+    syncHistory();
+    emit();
+  };
+
+  const redo = () => {
+    const next = redoStack.current.pop();
+    if (!next) return;
+    undoStack.current.push(next);
+    ctx().putImageData(next, 0, 0);
+    hasInk.current = true;
+    syncHistory();
+    emit();
+  };
+
+  const clear = () => {
+    const g = ctx();
+    g.clearRect(0, 0, TEX_W, TEX_H);
+    undoStack.current.push(snapshot());
+    redoStack.current = [];
+    hasInk.current = false;
+    initialValue.current = null;
+    syncHistory();
+    emit();
+  };
+
+  const onKeyDown = (e: React.KeyboardEvent) => {
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z") {
+      e.preventDefault();
+      if (e.shiftKey) redo();
+      else undo();
+    }
+  };
+
+  return (
+    <div className="space-y-4" onKeyDown={onKeyDown}>
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="flex rounded-full border border-white/10 bg-white/5 p-1" role="radiogroup" aria-label="เครื่องมือ">
+          <button
+            type="button"
+            role="radio"
+            aria-checked={tool === "pen"}
+            onClick={() => setTool("pen")}
+            className={cn("flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs", tool === "pen" ? "bg-gold text-night" : "text-warm/70")}
+          >
+            <Brush className="size-4" /> ปากกา
+          </button>
+          <button
+            type="button"
+            role="radio"
+            aria-checked={tool === "eraser"}
+            onClick={() => setTool("eraser")}
+            className={cn("flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs", tool === "eraser" ? "bg-gold text-night" : "text-warm/70")}
+          >
+            <Eraser className="size-4" /> ยางลบ
+          </button>
+        </div>
+        <div className="ml-auto flex gap-1">
+          <Button type="button" variant="subtle" size="icon" onClick={undo} disabled={history.undo <= 1} aria-label="ย้อนกลับ (Undo)">
+            <Undo2 />
+          </Button>
+          <Button type="button" variant="subtle" size="icon" onClick={redo} disabled={!history.redo} aria-label="ทำซ้ำ (Redo)">
+            <Redo2 />
+          </Button>
+          <Button type="button" variant="subtle" size="icon" onClick={clear} aria-label="ล้างภาพวาดทั้งหมด">
+            <Trash2 />
+          </Button>
+        </div>
+      </div>
+
+      <div className="flex flex-wrap items-center gap-2">
+        {PEN_COLORS.map((c) => (
+          <button
+            key={c}
+            type="button"
+            aria-label={`สีปากกา ${c}`}
+            aria-pressed={color === c && tool === "pen"}
+            onClick={() => {
+              setColor(c);
+              setTool("pen");
+            }}
+            className={cn("size-7 rounded-full border-2 transition", color === c && tool === "pen" ? "scale-110 border-gold" : "border-white/20")}
+            style={{ background: c }}
+          />
+        ))}
+        <label className="relative grid size-7 cursor-pointer place-items-center rounded-full border-2 border-dashed border-white/30 text-xs text-warm/60">
+          +
+          <input
+            type="color"
+            aria-label="เลือกสีปากกา"
+            value={color}
+            onChange={(e) => {
+              setColor(e.target.value);
+              setTool("pen");
+            }}
+            className="absolute inset-0 cursor-pointer opacity-0"
+          />
+        </label>
+      </div>
+
+      <div className="flex items-center gap-3">
+        <span className="text-xs text-warm/60">ขนาดแปรง</span>
+        <Slider className="max-w-48" min={2} max={28} step={1} value={[size]} onValueChange={([v]) => setSize(v)} aria-label="ขนาดแปรง" />
+        <span className="grid size-8 place-items-center">
+          <span className="rounded-full bg-warm" style={{ width: Math.max(3, size * 0.8), height: Math.max(3, size * 0.8) }} />
+        </span>
+      </div>
+
+      <div className="relative mx-auto w-full max-w-sm overflow-hidden rounded-xl border border-gold/30 shadow-[0_0_40px_-10px_rgba(245,185,66,0.6)]" style={{ aspectRatio: `${TEX_W} / ${TEX_H}` }}>
+        <canvas ref={baseRef} width={TEX_W} height={TEX_H} className="absolute inset-0 h-full w-full" aria-hidden />
+        <canvas
+          ref={drawRef}
+          width={TEX_W}
+          height={TEX_H}
+          tabIndex={0}
+          aria-label="พื้นที่วาดภาพบนด้านหน้าโคม"
+          className={cn("absolute inset-0 h-full w-full touch-none outline-none", tool === "eraser" ? "cursor-cell" : "cursor-crosshair")}
+          onPointerDown={onPointerDown}
+          onPointerMove={onPointerMove}
+          onPointerUp={end}
+          onPointerCancel={end}
+          onPointerLeave={end}
+        />
+      </div>
+      <p className="text-center text-xs text-warm/45">วาดหัวใจ ดอกไม้ ดวงดาว หรือเขียนด้วยลายมือของคุณได้เลย · Ctrl+Z เพื่อย้อนกลับ</p>
+    </div>
+  );
+}

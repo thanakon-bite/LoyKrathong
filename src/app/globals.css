@@ -1,0 +1,88 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@theme {
+  --color-night: #050913;
+  --color-midnight: #0a1124;
+  --color-navy: #0e1733;
+  --color-gold: #f5b942;
+  --color-amber: #ffd27a;
+  --color-ember: #ff9f4a;
+  --color-warm: #fff6e6;
+
+  --font-sans: "Noto Sans Thai", "Kanit", system-ui, sans-serif;
+  --font-display: "Kanit", "Noto Sans Thai", system-ui, sans-serif;
+  --font-hand: "Sriracha", "Noto Sans Thai", cursive;
+
+  --animate-float: float 6s ease-in-out infinite;
+  --animate-glow: glow 3.5s ease-in-out infinite;
+
+  @keyframes float {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(-8px); }
+  }
+  @keyframes glow {
+    0%, 100% { opacity: 0.75; }
+    50% { opacity: 1; }
+  }
+}
+
+@layer base {
+  html {
+    color-scheme: dark;
+    -webkit-tap-highlight-color: transparent;
+  }
+  body {
+    @apply bg-night text-warm font-sans antialiased;
+    overflow-x: hidden;
+    min-height: 100dvh;
+  }
+  ::selection {
+    background: rgb(245 185 66 / 0.35);
+  }
+  :focus-visible {
+    outline-color: var(--color-gold);
+  }
+}
+
+@layer components {
+  .text-glow {
+    text-shadow: 0 0 24px rgb(245 185 66 / 0.55), 0 0 2px rgb(255 214 140 / 0.6);
+  }
+  .glass {
+    @apply border border-white/10 bg-night/55 backdrop-blur-xl;
+  }
+  .gold-gradient-text {
+    background: linear-gradient(180deg, #fff3cf 0%, #ffd27a 45%, #f5b942 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  .prose-festival {
+    @apply text-warm/80 leading-relaxed;
+  }
+  .prose-festival h2 {
+    @apply mt-10 mb-3 font-display text-2xl text-warm;
+  }
+  .prose-festival h3 {
+    @apply mt-6 mb-2 font-display text-lg text-amber;
+  }
+  .prose-festival p,
+  .prose-festival ul {
+    @apply mb-4;
+  }
+  .prose-festival ul {
+    @apply list-disc pl-6 space-y-1;
+  }
+  .prose-festival a {
+    @apply text-gold underline underline-offset-4;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
