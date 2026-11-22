@@ -28,7 +28,7 @@ export function Hero() {
           animate="show"
           className="mb-5 inline-flex items-center gap-2 rounded-full border border-gold/30 bg-night/40 px-4 py-1.5 text-xs tracking-[0.2em] text-amber backdrop-blur-md sm:text-sm"
         >
-          <Sparkles className="size-3.5" /> ลอยกระทงออนไลน์ 2569 · คืนวันเพ็ญเดือนสิบสอง
+          <Sparkles className="size-3.5" /> ลอยกระทงออนไลน์ 2569<span className="hidden sm:inline"> · คืนวันเพ็ญเดือนสิบสอง</span>
         </motion.p>
         <motion.h1
           id="hero-title"
@@ -36,15 +36,18 @@ export function Hero() {
           variants={fadeUp}
           initial="hidden"
           animate="show"
-          className="font-display text-4xl font-light leading-tight text-warm text-glow sm:text-6xl md:text-7xl"
+          className="font-display text-[2.1rem] font-light leading-tight text-warm text-glow sm:text-6xl md:text-7xl"
         >
           ส่งคำอธิษฐานของคุณ
           <br />
           <span className="gold-gradient-text font-normal">ให้ลอยไปกับแสงแห่งความหวัง</span>
         </motion.h1>
-        <motion.p custom={2} variants={fadeUp} initial="hidden" animate="show" className="mt-6 max-w-2xl text-base leading-relaxed text-warm/75 sm:text-lg">
-          สร้างโคมกระดาษอธิษฐานในแบบของคุณ เขียนคำอวยพร วาดภาพ ใส่รูปที่มีความหมาย แล้วปล่อยลงบนผิวน้ำ
-          ลอยเคียงข้างโคมของผู้คนทั่วโลกแบบเรียลไทม์
+        <motion.p custom={2} variants={fadeUp} initial="hidden" animate="show" className="mt-5 max-w-2xl text-base leading-relaxed text-warm/75 sm:mt-6 sm:text-lg">
+          <span className="sm:hidden">เขียนคำอธิษฐานบนโคม แล้วปล่อยลอยไปพร้อมผู้คนทั่วโลก</span>
+          <span className="hidden sm:inline">
+            สร้างโคมกระดาษอธิษฐานในแบบของคุณ เขียนคำอวยพร วาดภาพ ใส่รูปที่มีความหมาย แล้วปล่อยลงบนผิวน้ำ
+            ลอยเคียงข้างโคมของผู้คนทั่วโลกแบบเรียลไทม์
+          </span>
         </motion.p>
         <motion.div custom={3} variants={fadeUp} initial="hidden" animate="show" className="mt-10 flex w-full flex-col items-center justify-center gap-3 sm:w-auto sm:flex-row">
           <Button asChild size="lg" className="w-full sm:w-auto">

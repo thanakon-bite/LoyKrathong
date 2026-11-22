@@ -1,11 +1,11 @@
 import { ApiError, assertSameOrigin, getClientIp, handleError, noStore, readJson, requireUser } from "@/lib/api";
 import { releaseRequestSchema } from "@/lib/security/validation";
 import { rateLimit } from "@/services/rate-limit";
-import { getActivePackage } from "@/services/package-service";
-import { assertAssets, assertPackageAllows } from "@/services/lantern-service";
+import { quoteRequest } from "@/services/quote-service";
+import { assertAssets, assertHasContent } from "@/services/lantern-service";
 import { createCheckoutSession } from "@/services/payment-service";
 
-/** Creates a Stripe Checkout Session for a paid package. Price comes from the database, never from the client. */
+/** Creates a Stripe Checkout Session. Every price comes from the database, never from the client. */
 export async function POST(req: Request) {
   try {
     assertSameOrigin(req);
@@ -14,12 +14,12 @@ export async function POST(req: Request) {
     await rateLimit(`checkout:user:${user.id}`, 8, 600, "สร้างรายการชำระเงินถี่เกินไป กรุณารอสักครู่");
 
     const body = releaseRequestSchema.parse(await readJson(req));
-    const pkg = await getActivePackage(body.packageSlug);
-    if (!pkg) throw new ApiError(404, "package_not_found", "ไม่พบแพ็กเกจที่เลือก");
-    assertPackageAllows(body.lantern, pkg);
+    assertHasContent(body.lantern);
+    const { selection, quote } = await quoteRequest(body);
+    if (quote.total <= 0) throw new ApiError(400, "free", "รายการนี้ไม่ต้องชำระเงิน");
     await assertAssets(user.id, body.lantern);
 
-    const { url, paymentId } = await createCheckoutSession(user.id, body.lantern, pkg, body.requestId);
+    const { url, paymentId } = await createCheckoutSession(user.id, body.lantern, selection, quote, body.requestId);
     return noStore({ url, paymentId }, 201);
   } catch (err) {
     return handleError(err, "POST /api/checkout");

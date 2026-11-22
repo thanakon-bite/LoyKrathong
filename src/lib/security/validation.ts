@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { DECORATIONS, LANTERN_DESIGN_IDS, LANTERN_FONT_IDS, TEXT_POSITIONS } from "@/types/lantern";
+import { DECORATIONS, EFFECT_IDS, LANTERN_DESIGN_IDS, LANTERN_FONT_IDS, TEXT_POSITIONS } from "@/types/lantern";
 import { LIMITS } from "@/lib/lantern/designs";
 import { sanitizeText } from "./sanitize";
 
@@ -44,9 +44,12 @@ export const lanternInputSchema = z.object({
 export type LanternInput = z.infer<typeof lanternInputSchema>;
 
 export const releaseRequestSchema = z.object({
-  packageSlug: z.string().regex(/^[a-z0-9-]{2,40}$/),
   requestId: z.uuid(),
   lantern: lanternInputSchema,
+  /** paid add-ons; prices are looked up on the server */
+  effects: z.array(z.enum(EFFECT_IDS)).max(EFFECT_IDS.length).default([]),
+  /** money put into the lantern (THB) */
+  offering: z.number().min(0).max(100000).default(0),
 });
 export type ReleaseRequest = z.infer<typeof releaseRequestSchema>;
 
@@ -77,3 +80,20 @@ export const packageUpsertSchema = z
   .refine((p) => p.price === 0 || p.price >= 10, { message: "ราคาแพ็กเกจที่ต้องชำระต้องไม่ต่ำกว่า 10 บาท (ข้อกำหนดของ Stripe)", path: ["price"] });
 
 export const uuidSchema = z.uuid();
+
+export const catalogItemUpdateSchema = z.object({
+  name: cleanText(60, 1),
+  description: cleanText(200),
+  price: z.number().min(0).max(100000),
+  isActive: z.boolean(),
+  sortOrder: z.number().int().min(0).max(1000),
+});
+
+export const offeringSettingsSchema = z
+  .object({
+    enabled: z.boolean(),
+    presets: z.array(z.number().min(1).max(100000)).min(1).max(8),
+    min: z.number().min(1).max(100000),
+    max: z.number().min(1).max(100000),
+  })
+  .refine((o) => o.min <= o.max, { message: "ขั้นต่ำต้องไม่มากกว่าสูงสุด", path: ["min"] });

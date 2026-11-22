@@ -2,13 +2,14 @@ import { z } from "zod";
 import { assertSameOrigin, getClientIp, handleError, noStore, readJson, requireUser, ApiError } from "@/lib/api";
 import { releaseRequestSchema } from "@/lib/security/validation";
 import { rateLimit } from "@/services/rate-limit";
-import { getActivePackage } from "@/services/package-service";
+import { quoteRequest } from "@/services/quote-service";
 import {
   assertAssets,
-  assertPackageAllows,
+  assertHasContent,
   getActiveLantern,
   getActiveLanternsByIds,
   listActiveLanterns,
+  listActiveLanternsSince,
   releaseFreeLantern,
 } from "@/services/lantern-service";
 
@@ -16,20 +17,29 @@ export const dynamic = "force-dynamic";
 
 const idsSchema = z.array(z.uuid()).max(50);
 
-/** GET /api/lanterns            → active lanterns (newest first)
- *  GET /api/lanterns?ids=a,b,c  → specific active lanterns (used after a realtime "lantern:new" event) */
+const sinceSchema = z.iso.datetime({ offset: true });
+
+/** GET /api/lanterns              → active lanterns (newest first)
+ *  GET /api/lanterns?ids=a,b,c    → specific active lanterns (after a realtime "lantern:new" event)
+ *  GET /api/lanterns?since=<iso>  → lanterns released after <iso> (incremental polling fallback) */
 export async function GET(req: Request) {
   try {
-    await rateLimit(`lanterns:get:${getClientIp(req)}`, 120, 60);
-    const idsParam = new URL(req.url).searchParams.get("ids");
-    const lanterns = idsParam ? await getActiveLanternsByIds(idsSchema.parse(idsParam.split(",").filter(Boolean))) : await listActiveLanterns();
+    await rateLimit(`lanterns:get:${getClientIp(req)}`, 240, 60);
+    const params = new URL(req.url).searchParams;
+    const idsParam = params.get("ids");
+    const sinceParam = params.get("since");
+    const lanterns = idsParam
+      ? await getActiveLanternsByIds(idsSchema.parse(idsParam.split(",").filter(Boolean)))
+      : sinceParam
+        ? await listActiveLanternsSince(sinceSchema.parse(sinceParam))
+        : await listActiveLanterns();
     return noStore({ serverTime: new Date().toISOString(), lanterns });
   } catch (err) {
     return handleError(err, "GET /api/lanterns");
   }
 }
 
-/** POST /api/lanterns → release a lantern with a FREE package (paid packages go through /api/checkout) */
+/** POST /api/lanterns → release a FREE lantern (anything with a price goes through /api/checkout) */
 export async function POST(req: Request) {
   try {
     assertSameOrigin(req);
@@ -39,13 +49,12 @@ export async function POST(req: Request) {
     await rateLimit(`lanterns:post:user:${user.id}`, 5, 600, "คุณปล่อยโคมครบจำนวนแล้ว กรุณารอ 10 นาทีแล้วลองใหม่");
 
     const body = releaseRequestSchema.parse(await readJson(req));
-    const pkg = await getActivePackage(body.packageSlug);
-    if (!pkg) throw new ApiError(404, "package_not_found", "ไม่พบแพ็กเกจที่เลือก");
-    if (pkg.price > 0) throw new ApiError(402, "payment_required", "แพ็กเกจนี้ต้องชำระเงินก่อนปล่อยโคม");
-    assertPackageAllows(body.lantern, pkg);
+    assertHasContent(body.lantern);
+    const { selection, quote } = await quoteRequest(body);
+    if (quote.total > 0) throw new ApiError(402, "payment_required", "รายการนี้มีของเสริม/ใส่เงิน ต้องชำระเงินก่อนปล่อยโคม");
     await assertAssets(user.id, body.lantern);
 
-    const { id, duplicate } = await releaseFreeLantern(user.id, body.lantern, pkg, body.requestId);
+    const { id, duplicate } = await releaseFreeLantern(user.id, body.lantern, selection, body.requestId);
     const lantern = await getActiveLantern(id);
     return noStore({ lantern, duplicate, serverTime: new Date().toISOString() }, duplicate ? 200 : 201);
   } catch (err) {

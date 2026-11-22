@@ -1,15 +1,19 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
+import { isValidHttpUrl } from "@/lib/env";
 
 /**
- * Refreshes the Supabase auth session cookie on navigation and API calls,
- * and does an optimistic redirect for /admin (real authorization happens server-side per request).
+ * Runs ONLY for /admin pages: refreshes the session cookie and does an optimistic redirect to the
+ * login page (real authorization happens server-side on every request).
+ * Public pages and API routes skip the proxy entirely, so they never wait for an extra auth round-trip
+ * (the browser client keeps the session fresh by itself).
  */
 export async function proxy(request: NextRequest) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
   let response = NextResponse.next({ request });
-  if (!url || !key) return response;
+  // misconfigured env must not take the whole site down – API routes report "not_configured" instead
+  if (!key || !isValidHttpUrl(url)) return response;
 
   const supabase = createServerClient(url, key, {
     cookies: {
@@ -23,7 +27,12 @@ export async function proxy(request: NextRequest) {
     },
   });
 
-  const { data } = await supabase.auth.getClaims();
+  let data: Awaited<ReturnType<typeof supabase.auth.getClaims>>["data"] = null;
+  try {
+    ({ data } = await supabase.auth.getClaims());
+  } catch {
+    // Supabase unreachable – continue without a session
+  }
   const path = request.nextUrl.pathname;
   if (path.startsWith("/admin") && path !== "/admin/login") {
     const claims = data?.claims as { is_anonymous?: boolean } | undefined;
@@ -37,8 +46,5 @@ export async function proxy(request: NextRequest) {
 }
 
 export const config = {
-  matcher: [
-    // skip static assets, images, the Stripe webhook (raw body) and SEO files
-    "/((?!_next/static|_next/image|favicon.ico|icon|opengraph-image|robots.txt|sitemap.xml|manifest.webmanifest|audio/|api/webhooks).*)",
-  ],
+  matcher: ["/admin/:path*", "/admin"],
 };

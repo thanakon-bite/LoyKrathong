@@ -17,13 +17,15 @@ interface Props {
   visual: LanternVisual;
   value: string | null;
   onChange: (dataUrl: string | null) => void;
+  /** false while the tab is hidden – skips re-rendering the background on every keystroke */
+  active?: boolean;
 }
 
 /**
  * Freehand drawing directly on the front face of the lantern.
  * Supports mouse, touch and pen (pressure), with undo / redo / clear.
  */
-export function DrawingPad({ visual, value, onChange }: Props) {
+export function DrawingPad({ visual, value, onChange, active = true }: Props) {
   const baseRef = useRef<HTMLCanvasElement>(null);
   const drawRef = useRef<HTMLCanvasElement>(null);
   const [tool, setTool] = useState<"pen" | "eraser">("pen");
@@ -40,6 +42,7 @@ export function DrawingPad({ visual, value, onChange }: Props) {
 
   // base layer: paper + text + image (WYSIWYG with the lantern)
   useEffect(() => {
+    if (!active) return;
     let cancelled = false;
     (async () => {
       await ensureLanternFonts([visual.textConfig.font]);
@@ -54,7 +57,7 @@ export function DrawingPad({ visual, value, onChange }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [visual]);
+  }, [visual, active]);
 
   const ctx = () => drawRef.current!.getContext("2d", { willReadFrequently: true })!;
   const snapshot = () => ctx().getImageData(0, 0, TEX_W, TEX_H);
@@ -246,7 +249,7 @@ export function DrawingPad({ visual, value, onChange }: Props) {
       </div>
 
       <div className="flex items-center gap-3">
-        <span className="text-xs text-warm/60">ขนาดแปรง</span>
+        <span className="text-xs text-warm/60">ขนาด</span>
         <Slider className="max-w-48" min={2} max={28} step={1} value={[size]} onValueChange={([v]) => setSize(v)} aria-label="ขนาดแปรง" />
         <span className="grid size-8 place-items-center">
           <span className="rounded-full bg-warm" style={{ width: Math.max(3, size * 0.8), height: Math.max(3, size * 0.8) }} />
@@ -269,7 +272,7 @@ export function DrawingPad({ visual, value, onChange }: Props) {
           onPointerLeave={end}
         />
       </div>
-      <p className="text-center text-xs text-warm/45">วาดหัวใจ ดอกไม้ ดวงดาว หรือเขียนด้วยลายมือของคุณได้เลย · Ctrl+Z เพื่อย้อนกลับ</p>
+      <p className="hidden text-center text-xs text-warm/45 sm:block">วาดหัวใจ ดอกไม้ ดวงดาว หรือเขียนด้วยลายมือของคุณได้เลย · Ctrl+Z เพื่อย้อนกลับ</p>
     </div>
   );
 }

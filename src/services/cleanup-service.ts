@@ -5,10 +5,10 @@ import { log } from "./logger";
 
 /**
  * Retention policy (runs from /api/cron/cleanup):
- *  1. Lanterns past expires_at → status "expired" (they are already hidden by RLS / API filters).
- *  2. Expired, removed and cancelled lanterns: delete their images from Storage and wipe the
- *     personal content (wishes, names, drawings). A minimal row is kept for statistics and
- *     payment history.
+ *  1. Lanterns past expires_at (7 days) → status "expired": hidden from the public festival,
+ *     but kept for their owner ("โคมของฉัน") – content and images are NOT deleted.
+ *  2. Removed (moderated) and cancelled/unpaid lanterns: delete their images from Storage and wipe
+ *     the content. A minimal row is kept for statistics and payment history.
  *  3. Abandoned checkouts older than 2 hours are marked expired.
  */
 export async function runCleanup() {
@@ -21,7 +21,7 @@ export async function runCleanup() {
     .from("lanterns")
     .select("id, image_url, drawing_data, status")
     .is("content_purged_at", null)
-    .or(`status.in.(expired,removed,cancelled),and(status.eq.active,expires_at.lte.${nowIso})`)
+    .in("status", ["removed", "cancelled"])
     .limit(500);
   if (error) throw new Error(error.message);
 

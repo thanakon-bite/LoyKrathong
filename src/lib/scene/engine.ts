@@ -1,6 +1,6 @@
-import type { Decoration, LanternDesignId, LanternVisual } from "@/types/lantern";
+import type { EffectId, LanternDesignId, LanternVisual } from "@/types/lantern";
 import { hashString } from "@/lib/utils";
-import { LANTERN_LIFETIME_MS, lanternPose, type LanternPose } from "@/lib/lantern/motion";
+import { FADE_OUT_MS, LANTERN_LIFETIME_MS, lanternPose, type LanternPose } from "@/lib/lantern/motion";
 import { drawHalo, drawLantern, drawReflection, type ScreenRect } from "@/lib/lantern/render";
 import { buildFaceTextures, ensureLanternFonts, loadImage, type FaceTextures } from "@/lib/lantern/texture";
 import { MAX_VISIBLE_LANTERNS, selectVisibleLanterns } from "@/lib/lantern/selection";
@@ -17,7 +17,8 @@ export interface EngineLantern {
   expiresAtMs: number;
   design: LanternDesignId;
   light: string;
-  decoration: Decoration | null;
+  effects: EffectId[];
+  offering: number;
   /** Real lantern content; decorative lanterns use doodles instead */
   visual?: LanternVisual;
   doodleSeed?: number;
@@ -42,10 +43,16 @@ export interface EngineOptions {
   interactive?: boolean;
   quality?: Quality | "auto";
   maxVisible?: number;
+  /** Frame-rate cap (e.g. 30 for decorative backgrounds). Default: display refresh rate */
+  maxFps?: number;
+  /** Owner's "my river": lanterns never fade out (they rest on the water forever) */
+  keepAlive?: boolean;
   onLanternClick?: (id: string) => void;
   onHoverChange?: (id: string | null) => void;
   /** Called when the owner's lantern is visible on screen (for UI hints) */
   onOwnerVisibility?: (visible: boolean) => void;
+  /** Called the first time the user drags / zooms the view (so the UI can turn "follow" off) */
+  onUserNavigate?: () => void;
 }
 
 /** Texture canvases are recycled instead of re-allocated (object pooling) */
@@ -99,6 +106,17 @@ export class FestivalEngine {
   private loading = 0;
   private resizeObs: ResizeObserver | null = null;
   private ownerVisible = false;
+  private vignette: HTMLCanvasElement | null = null;
+  // free camera (drag / pinch / wheel / keys)
+  private manual = false;
+  private userCam: Camera = { x: 0, z: 0 };
+  private camVel = { x: 0, z: 0 };
+  private pointers = new Map<number, { x: number; y: number }>();
+  private dragDistance = 0;
+  private suppressClick = false;
+  private pinchDist = 0;
+  private lastMoveT = 0;
+  private lastDrawn = 0;
   private destroyed = false;
   private readonly max: number;
 
@@ -118,9 +136,14 @@ export class FestivalEngine {
       this.resizeObs.observe(canvas);
     }
     if (opts.interactive) {
+      canvas.addEventListener("pointerdown", this.onPointerDown);
       canvas.addEventListener("pointermove", this.onPointerMove);
+      canvas.addEventListener("pointerup", this.onPointerUp);
+      canvas.addEventListener("pointercancel", this.onPointerUp);
       canvas.addEventListener("pointerleave", this.onPointerLeave);
       canvas.addEventListener("click", this.onClick);
+      canvas.addEventListener("wheel", this.onWheel, { passive: false });
+      canvas.addEventListener("keydown", this.onKeyDown);
     }
   }
 
@@ -141,9 +164,14 @@ export class FestivalEngine {
     this.destroyed = true;
     this.stop();
     this.resizeObs?.disconnect();
+    this.canvas.removeEventListener("pointerdown", this.onPointerDown);
     this.canvas.removeEventListener("pointermove", this.onPointerMove);
+    this.canvas.removeEventListener("pointerup", this.onPointerUp);
+    this.canvas.removeEventListener("pointercancel", this.onPointerUp);
     this.canvas.removeEventListener("pointerleave", this.onPointerLeave);
     this.canvas.removeEventListener("click", this.onClick);
+    this.canvas.removeEventListener("wheel", this.onWheel);
+    this.canvas.removeEventListener("keydown", this.onKeyDown);
     this.entities.clear();
   }
 
@@ -164,6 +192,15 @@ export class FestivalEngine {
   setFollow(on: boolean) {
     this.follow = on;
     if (!on) this.followEngaged = false;
+    else this.manual = false; // following takes the camera back
+  }
+
+  /** Return to the default view */
+  resetView() {
+    this.manual = false;
+    this.userCam = { x: 0, z: 0 };
+    this.camVel = { x: 0, z: 0 };
+    this.followEngaged = false;
   }
 
   /** Focus (zoom into) a lantern and pause its motion; null resumes */
@@ -185,6 +222,7 @@ export class FestivalEngine {
   }
 
   upsert(list: EngineLantern[]) {
+    if (this.opts.keepAlive) list = list.map((l) => ({ ...l, expiresAtMs: Number.POSITIVE_INFINITY }));
     for (const l of list) {
       const existing = this.entities.get(l.id);
       if (existing) {
@@ -232,7 +270,7 @@ export class FestivalEngine {
     const list: EngineLantern[] = [];
     for (let i = 0; i < count; i++) {
       const design = designs[i % designs.length];
-      const age = ((i + 0.5) / count) * 27 * 60 * 1000;
+      const age = ((i + 0.5) / count) * 38 * 60 * 1000;
       list.push({
         id: `deco-${i}`,
         ownerId: "",
@@ -240,7 +278,8 @@ export class FestivalEngine {
         expiresAtMs: Number.POSITIVE_INFINITY,
         design,
         light: LANTERN_DESIGNS[design].defaultLight,
-        decoration: null,
+        effects: [],
+        offering: 0,
         doodleSeed: 101 + i * 37,
       });
     }
@@ -257,13 +296,30 @@ export class FestivalEngine {
     const rect = this.canvas.getBoundingClientRect();
     const w = Math.max(1, rect.width);
     const h = Math.max(1, rect.height);
-    const maxDpr = this.quality === "high" ? 2 : 1.25;
+    // full retina resolution is rarely worth it for a soft, glowing scene – big win on phones
+    const maxDpr = this.quality === "high" ? 1.5 : 1;
     this.dpr = Math.min(typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1, maxDpr);
     this.canvas.width = Math.round(w * this.dpr);
     this.canvas.height = Math.round(h * this.dpr);
     this.view = computeView(w, h);
     this.water.resize(this.view, this.dpr);
+    this.vignette = this.buildVignette(w, h);
   };
+
+  /** Vignette is static – render it once per resize instead of every frame */
+  private buildVignette(w: number, h: number) {
+    const c = document.createElement("canvas");
+    c.width = Math.max(1, Math.round(w / 2));
+    c.height = Math.max(1, Math.round(h / 2));
+    const g = c.getContext("2d")!;
+    g.scale(0.5, 0.5);
+    const vg = g.createRadialGradient(w / 2, h * 0.55, Math.min(w, h) * 0.35, w / 2, h * 0.55, Math.max(w, h) * 0.8);
+    vg.addColorStop(0, "rgba(0,0,0,0)");
+    vg.addColorStop(1, "rgba(0,0,0,0.45)");
+    g.fillStyle = vg;
+    g.fillRect(0, 0, w, h);
+    return c;
+  }
 
   private setQuality(q: Quality) {
     if (q === this.quality) return;
@@ -275,13 +331,16 @@ export class FestivalEngine {
 
   private ageOf(e: Entity, now: number) {
     const ref = e.pausedAt ?? now;
-    return ref - e.releasedAtMs - e.pauseMs;
+    const age = ref - e.releasedAtMs - e.pauseMs;
+    // owner view: freeze the lifecycle in the "resting" phase instead of fading out on day 7
+    return this.opts.keepAlive ? Math.min(age, LANTERN_LIFETIME_MS - FADE_OUT_MS - 60_000) : age;
   }
 
   private select(now: number) {
     // loop decorative lanterns
     for (const e of this.entities.values()) {
-      if (e.doodleSeed != null && now - e.releasedAtMs > LANTERN_LIFETIME_MS - 10_000) {
+      // decorative background lanterns re-launch every ~40 minutes so the landing page stays alive
+      if (e.doodleSeed != null && now - e.releasedAtMs > 40 * 60_000) {
         e.releasedAtMs = now;
         e.pauseMs = 0;
       }
@@ -364,6 +423,9 @@ export class FestivalEngine {
 
   private frame = (t: number) => {
     this.raf = requestAnimationFrame(this.frame);
+    const fps = this.opts.maxFps ?? (this.quality === "low" ? 30 : 0);
+    if (fps && t - this.lastDrawn < 1000 / fps - 2) return;
+    this.lastDrawn = t;
     const dtMs = t - this.last;
     this.last = t;
     const dt = Math.min(0.05, Math.max(0, dtMs / 1000));
@@ -410,6 +472,17 @@ export class FestivalEngine {
     const focus = this.focusId ? this.entities.get(this.focusId) : null;
     if (focus?.pose) {
       this.camTarget = { x: focus.pose.x, z: focus.pose.z - 2.4 };
+    } else if (this.manual) {
+      // free camera with inertia
+      if (this.pointers.size === 0) {
+        this.userCam.x += this.camVel.x * dt;
+        this.userCam.z += this.camVel.z * dt;
+        const decay = Math.exp(-dt * 3.5);
+        this.camVel.x *= decay;
+        this.camVel.z *= decay;
+      }
+      this.clampUserCam();
+      this.camTarget = { ...this.userCam };
     } else if (this.follow && this.userId) {
       let mine: Entity | null = null;
       for (const e of this.entities.values()) {
@@ -434,7 +507,7 @@ export class FestivalEngine {
     } else {
       this.camTarget = { x: 0, z: 0 };
     }
-    const k = 1 - Math.exp(-dt * (focus ? 2.2 : 0.8));
+    const k = 1 - Math.exp(-dt * (focus ? 2.2 : this.manual ? 12 : 0.8));
     this.cam.x += (this.camTarget.x - this.cam.x) * k;
     this.cam.z += (this.camTarget.z - this.cam.z) * k;
     void now;
@@ -495,7 +568,8 @@ export class FestivalEngine {
         alpha: pose.alpha * e.vis,
         design: e.design,
         light: e.light,
-        decoration: e.decoration,
+        effects: e.effects,
+        offering: e.offering,
         textures: e.textures,
         time: this.time,
         halo: false,
@@ -506,23 +580,18 @@ export class FestivalEngine {
 
     this.particles.draw(ctx, v.w, v.h, this.time);
 
-    // soft vignette
-    const vg = ctx.createRadialGradient(v.w / 2, v.h * 0.55, Math.min(v.w, v.h) * 0.35, v.w / 2, v.h * 0.55, Math.max(v.w, v.h) * 0.8);
-    vg.addColorStop(0, "rgba(0,0,0,0)");
-    vg.addColorStop(1, "rgba(0,0,0,0.45)");
-    ctx.fillStyle = vg;
-    ctx.fillRect(0, 0, v.w, v.h);
+    if (this.vignette) ctx.drawImage(this.vignette, 0, 0, v.w, v.h);
     void now;
   }
 
   private monitorPerformance(dtMs: number) {
     if (!this.autoQuality || this.quality === "low") return;
     this.frameTimes.push(dtMs);
-    if (this.frameTimes.length >= 120) {
+    if (this.frameTimes.length >= 90) {
       const sorted = [...this.frameTimes].sort((a, b) => a - b);
       const median = sorted[Math.floor(sorted.length / 2)];
       this.frameTimes = [];
-      if (median > 26 && document.visibilityState === "visible") this.setQuality("low");
+      if (median > 22 && document.visibilityState === "visible") this.setQuality("low");
     }
   }
 
@@ -539,12 +608,116 @@ export class FestivalEngine {
     return null;
   }
 
+  // ------------------------------------------------------------------ free camera input
+
+  private clampUserCam() {
+    this.userCam.x = Math.max(-11, Math.min(11, this.userCam.x));
+    this.userCam.z = Math.max(-1.2, Math.min(17, this.userCam.z));
+  }
+
+  private startManual() {
+    if (!this.manual) {
+      this.manual = true;
+      // continue from wherever the camera currently is
+      this.userCam = { ...this.cam };
+      this.opts.onUserNavigate?.();
+    }
+  }
+
+  /** world units moved per screen pixel at a mid-distance reference depth */
+  private get worldPerPx() {
+    const ref = Math.max(2.5, 6 - this.cam.z * 0.2);
+    return ref / this.view.focal;
+  }
+
+  private onPointerDown = (ev: PointerEvent) => {
+    if (this.focusId) return;
+    this.canvas.setPointerCapture?.(ev.pointerId);
+    this.pointers.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
+    if (this.pointers.size === 1) {
+      this.dragDistance = 0;
+      this.camVel = { x: 0, z: 0 };
+      this.lastMoveT = performance.now();
+    }
+    if (this.pointers.size === 2) {
+      const [a, b] = [...this.pointers.values()];
+      this.pinchDist = Math.hypot(a.x - b.x, a.y - b.y);
+    }
+  };
+
+  private onPointerUp = (ev: PointerEvent) => {
+    this.pointers.delete(ev.pointerId);
+    if (this.dragDistance > 8) this.suppressClick = true;
+    if (this.pointers.size < 2) this.pinchDist = 0;
+  };
+
+  private onWheel = (ev: WheelEvent) => {
+    if (this.focusId) return;
+    ev.preventDefault();
+    this.startManual();
+    this.userCam.z -= ev.deltaY * 0.01;
+    this.userCam.x += ev.deltaX * this.worldPerPx;
+    this.clampUserCam();
+  };
+
+  private onKeyDown = (ev: KeyboardEvent) => {
+    if (this.focusId) return;
+    const moves: Record<string, [number, number]> = {
+      ArrowLeft: [-0.6, 0],
+      ArrowRight: [0.6, 0],
+      ArrowUp: [0, 0.9],
+      ArrowDown: [0, -0.9],
+    };
+    const m = moves[ev.key];
+    if (!m) return;
+    ev.preventDefault();
+    this.startManual();
+    this.userCam.x += m[0];
+    this.userCam.z += m[1];
+    this.clampUserCam();
+  };
+
   private onPointerMove = (ev: PointerEvent) => {
+    const prev = this.pointers.get(ev.pointerId);
+    if (prev) {
+      const dx = ev.clientX - prev.x;
+      const dy = ev.clientY - prev.y;
+      this.pointers.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
+      if (this.pointers.size >= 2) {
+        // pinch: fingers apart = move forward over the water
+        const [a, b] = [...this.pointers.values()];
+        const dist = Math.hypot(a.x - b.x, a.y - b.y);
+        if (this.pinchDist) {
+          this.startManual();
+          this.userCam.z += (dist - this.pinchDist) * 0.03;
+          this.clampUserCam();
+        }
+        this.pinchDist = dist;
+        this.dragDistance += 20;
+        return;
+      }
+      this.dragDistance += Math.abs(dx) + Math.abs(dy);
+      if (this.dragDistance > 8) {
+        this.startManual();
+        // grab-the-water feel: drag left → view moves right, drag down → glide forward
+        const sx = -dx * this.worldPerPx;
+        const sz = (dy / Math.max(1, this.view.h)) * 14;
+        this.userCam.x += sx;
+        this.userCam.z += sz;
+        this.clampUserCam();
+        const now = performance.now();
+        const dt = Math.max(0.008, (now - this.lastMoveT) / 1000);
+        this.lastMoveT = now;
+        this.camVel = { x: (sx / dt) * 0.6, z: (sz / dt) * 0.6 };
+        this.canvas.style.cursor = "grabbing";
+      }
+      return;
+    }
     if (ev.pointerType === "touch") return;
     const id = this.hitTest(ev.clientX, ev.clientY);
-    if (id !== this.hoverId) {
+    if (id !== this.hoverId || this.canvas.style.cursor === "grabbing") {
       this.hoverId = id;
-      this.canvas.style.cursor = id ? "pointer" : "default";
+      this.canvas.style.cursor = id ? "pointer" : "grab";
       this.opts.onHoverChange?.(id);
     }
   };
@@ -552,12 +725,17 @@ export class FestivalEngine {
   private onPointerLeave = () => {
     if (this.hoverId) {
       this.hoverId = null;
-      this.canvas.style.cursor = "default";
+      this.canvas.style.cursor = "grab";
       this.opts.onHoverChange?.(null);
     }
   };
 
   private onClick = (ev: MouseEvent) => {
+    // a drag is not a click
+    if (this.suppressClick) {
+      this.suppressClick = false;
+      return;
+    }
     const id = this.hitTest(ev.clientX, ev.clientY);
     if (id) this.opts.onLanternClick?.(id);
   };
@@ -570,7 +748,6 @@ export function toEngineLantern(l: {
   expiresAt: string;
   design: LanternDesignId;
   color: string;
-  decoration: Decoration | null;
 } & LanternVisual): EngineLantern {
   return {
     id: l.id,
@@ -579,7 +756,8 @@ export function toEngineLantern(l: {
     expiresAtMs: Date.parse(l.expiresAt),
     design: l.design,
     light: l.color,
-    decoration: l.decoration,
+    effects: l.effects ?? [],
+    offering: l.offering ?? 0,
     visual: l,
   };
 }

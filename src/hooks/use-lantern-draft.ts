@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useSyncExternalStore } from "react";
-import type { ImageConfig, LanternDesignId, LanternVisual, TextConfig } from "@/types/lantern";
+import type { EffectId, ImageConfig, LanternDesignId, LanternVisual, TextConfig } from "@/types/lantern";
 import { DEFAULT_TEXT_CONFIG, LANTERN_DESIGNS } from "@/lib/lantern/designs";
 
 export interface LanternDraft {
@@ -15,6 +15,10 @@ export interface LanternDraft {
   imageConfig: ImageConfig;
   imageDataUrl: string | null;
   drawingDataUrl: string | null;
+  /** paid add-on effects */
+  effects: EffectId[];
+  /** money put into the lantern (THB) */
+  offering: number;
   /** Idempotency key for the release request – the same key is reused on retry */
   requestId: string;
   /** Cache of already uploaded assets (key = hash of the data URL) */
@@ -35,6 +39,8 @@ export function newDraft(): LanternDraft {
     imageConfig: { x: 0, y: 0.18, scale: 0.55 },
     imageDataUrl: null,
     drawingDataUrl: null,
+    effects: [],
+    offering: 0,
     requestId: crypto.randomUUID(),
     uploads: {},
   };
@@ -113,11 +119,12 @@ export function useLanternDraft() {
   return { draft, update, reset, renewRequestId, ready: draft !== null };
 }
 
-export function draftToVisual(d: LanternDraft, decoration: LanternVisual["decoration"] = null): LanternVisual {
+export function draftToVisual(d: LanternDraft): LanternVisual {
   return {
     design: d.design,
     color: d.color,
-    decoration,
+    effects: d.effects ?? [],
+    offering: d.offering ?? 0,
     displayName: d.displayName,
     wishMessage: d.wishMessage,
     blessingMessage: d.blessingMessage,

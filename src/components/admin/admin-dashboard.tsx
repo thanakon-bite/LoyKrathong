@@ -12,7 +12,8 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { LanternsAdmin, LogsAdmin, PackagesAdmin, PaymentsAdmin, ReportsAdmin } from "./admin-sections";
+import { LanternsAdmin, LogsAdmin, PaymentsAdmin, ReportsAdmin } from "./admin-sections";
+import { CatalogAdmin } from "./admin-catalog";
 
 type Role = "moderator" | "admin";
 
@@ -31,6 +32,7 @@ const TOTAL_LABELS: Array<[string, string, boolean?]> = [
   ["openReports", "รายงานที่รอตรวจสอบ"],
   ["paidPayments", "รายการชำระสำเร็จ"],
   ["revenue", "รายได้รวม (THB)", true],
+  ["offerings", "ยอดใส่เงินลงกระทง (THB)", true],
 ];
 
 export function AdminDashboard({ role, email }: { role: Role; email: string | null }) {
@@ -74,7 +76,7 @@ export function AdminDashboard({ role, email }: { role: Role; email: string | nu
           <TabsTrigger value="overview"><BarChart3 /> ภาพรวม</TabsTrigger>
           <TabsTrigger value="lanterns"><Flame /> โคม</TabsTrigger>
           <TabsTrigger value="reports"><Flag /> รายงาน</TabsTrigger>
-          {isAdmin && <TabsTrigger value="packages"><Package /> แพ็กเกจ</TabsTrigger>}
+          {isAdmin && <TabsTrigger value="catalog"><Package /> ราคา/ของเสริม</TabsTrigger>}
           {isAdmin && <TabsTrigger value="payments"><Receipt /> ชำระเงิน</TabsTrigger>}
           {isAdmin && <TabsTrigger value="logs"><ScrollText /> Logs</TabsTrigger>}
         </TabsList>
@@ -94,7 +96,7 @@ export function AdminDashboard({ role, email }: { role: Role; email: string | nu
         </TabsContent>
         <TabsContent value="lanterns"><LanternsAdmin onChanged={loadOverview} /></TabsContent>
         <TabsContent value="reports"><ReportsAdmin onChanged={loadOverview} /></TabsContent>
-        {isAdmin && <TabsContent value="packages"><PackagesAdmin /></TabsContent>}
+        {isAdmin && <TabsContent value="catalog"><CatalogAdmin /></TabsContent>}
         {isAdmin && <TabsContent value="payments"><PaymentsAdmin /></TabsContent>}
         {isAdmin && <TabsContent value="logs"><LogsAdmin /></TabsContent>}
       </Tabs>

@@ -23,7 +23,7 @@ export function PreviewDialog({ open, visual, onClose, onConfirm }: Props) {
         <div className="space-y-4 p-5 sm:p-7">
           <DialogHeader>
             <DialogTitle>โคมของคุณพร้อมแล้ว</DialogTitle>
-            <DialogDescription>ตรวจสอบข้อความและภาพบนโคมอีกครั้ง เมื่อปล่อยแล้วจะไม่สามารถแก้ไขได้ โคมจะลอยอยู่ 30 นาที</DialogDescription>
+            <DialogDescription>ตรวจสอบข้อความและภาพบนโคมอีกครั้ง เมื่อปล่อยแล้วจะไม่สามารถแก้ไขได้ โคมจะลอยอยู่ 7 วัน</DialogDescription>
           </DialogHeader>
           <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
             <Button variant="outline" onClick={onClose}>

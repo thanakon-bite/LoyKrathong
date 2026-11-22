@@ -6,57 +6,65 @@ import type { AmbientMusic } from "@/lib/audio/ambient";
 
 const STORAGE_KEY = "loykrathong:audio";
 
+/** Theme song (audio only). Override with NEXT_PUBLIC_BGM_URL. */
+export const DEFAULT_BGM_URL = "/audio/loykrathong-bgm.mp3";
+const BGM_URL = publicEnv.bgmUrl || DEFAULT_BGM_URL;
+
+type Source = "file" | "synth";
+
 interface AudioState {
-  /** user wants sound on (persisted) */
+  /** user wants music (on by default; off only after pressing mute) */
   enabled: boolean;
-  /** sound is actually playing right now */
+  /** music is actually audible right now */
   playing: boolean;
+  /** enabled but the browser is waiting for the first tap/click before sound may start */
+  waitingForGesture: boolean;
   volume: number;
-  /** user has made a choice before (hide the first-visit prompt) */
-  decided: boolean;
+  source: Source;
   toggle: () => Promise<void>;
   play: () => Promise<void>;
   setVolume: (v: number) => void;
-  dismiss: () => void;
+  /** Temporarily silence the theme music (e.g. while a shared clip plays) without changing the user's preference */
+  suspend: (on: boolean) => void;
 }
 
 const AudioCtx = createContext<AudioState | null>(null);
 
-function readPref(): { enabled: boolean; volume: number; decided: boolean } {
+function readPref(): { enabled: boolean; volume: number } {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) {
       const p = JSON.parse(raw);
-      return { enabled: !!p.enabled, volume: typeof p.volume === "number" ? p.volume : 0.6, decided: true };
+      // music is ON unless the user explicitly muted it
+      return { enabled: p.muted !== true, volume: typeof p.volume === "number" ? p.volume : 0.6 };
     }
   } catch {
     /* storage unavailable */
   }
-  return { enabled: false, volume: 0.6, decided: false };
+  return { enabled: true, volume: 0.6 };
 }
 
+const GESTURES = ["pointerdown", "keydown", "touchstart"] as const;
+
 /**
- * Background music shared by every page (lives in the root layout, so it keeps
- * playing across client-side navigation). Browsers block autoplay, so music only
- * starts after the user presses a button.
+ * Background music shared by every page (lives in the root layout, so it keeps playing
+ * across client-side navigation). It starts automatically; browsers that block autoplay
+ * with sound get it started on the visitor's first tap / click / key press anywhere.
  */
 export function AudioProvider({ children }: { children: React.ReactNode }) {
-  const [enabled, setEnabled] = useState(false);
+  const [enabled, setEnabled] = useState(true);
   const [playing, setPlaying] = useState(false);
+  const [waitingForGesture, setWaiting] = useState(false);
   const [volume, setVol] = useState(0.6);
-  const [decided, setDecided] = useState(true);
-  const synth = useRef<AmbientMusic | null>(null);
+  const [source, setSource] = useState<Source>("file");
   const element = useRef<HTMLAudioElement | null>(null);
+  const synth = useRef<AmbientMusic | null>(null);
+  const sourceRef = useRef<Source>("file");
+  const volumeRef = useRef(0.6);
+  const enabledRef = useRef(true);
+  const suspended = useRef(false);
 
-  useEffect(() => {
-    const p = readPref();
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- hydrate persisted preference after mount
-    setEnabled(p.enabled);
-    setVol(p.volume);
-    setDecided(p.decided);
-  }, []);
-
-  const persist = useCallback((next: { enabled: boolean; volume: number }) => {
+  const persist = useCallback((next: { muted: boolean; volume: number }) => {
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
     } catch {
@@ -64,79 +72,150 @@ export function AudioProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
-  const startOutput = useCallback(async (vol: number) => {
-    if (publicEnv.bgmUrl) {
-      if (!element.current) {
-        const a = new Audio(publicEnv.bgmUrl);
-        a.loop = true;
-        a.preload = "auto";
-        element.current = a;
-      }
-      element.current.volume = vol;
-      await element.current.play();
-    } else {
-      if (!synth.current) {
-        const { AmbientMusic } = await import("@/lib/audio/ambient");
-        synth.current = new AmbientMusic();
-      }
-      await synth.current.start(vol * 0.9);
+  const startSynth = useCallback(async () => {
+    if (!synth.current) {
+      const { AmbientMusic } = await import("@/lib/audio/ambient");
+      synth.current = new AmbientMusic();
     }
+    await synth.current.start(volumeRef.current * 0.9);
   }, []);
+
+  const audio = useCallback(() => {
+    if (!element.current) {
+      const a = new Audio(BGM_URL);
+      a.loop = true;
+      a.preload = "auto";
+      a.volume = volumeRef.current;
+      // file missing / unsupported → generated ambient music instead of silence
+      a.addEventListener("error", () => {
+        sourceRef.current = "synth";
+        setSource("synth");
+        if (enabledRef.current && !suspended.current) void startSynth().then(() => setPlaying(true), () => undefined);
+      });
+      element.current = a;
+    }
+    return element.current;
+  }, [startSynth]);
+
+  /** Starts sound; resolves false when the browser still blocks autoplay */
+  const startOutput = useCallback(async (): Promise<boolean> => {
+    try {
+      if (sourceRef.current === "synth") await startSynth();
+      else {
+        const a = audio();
+        a.volume = volumeRef.current;
+        await a.play();
+      }
+      setPlaying(true);
+      setWaiting(false);
+      return true;
+    } catch (e) {
+      if ((e as DOMException)?.name === "NotAllowedError") {
+        setWaiting(true);
+        return false;
+      }
+      // decode/network problem → fall back to synth
+      if (sourceRef.current === "file") {
+        sourceRef.current = "synth";
+        setSource("synth");
+        try {
+          await startSynth();
+          setPlaying(true);
+          setWaiting(false);
+          return true;
+        } catch {
+          return false;
+        }
+      }
+      return false;
+    }
+  }, [audio, startSynth]);
 
   const stopOutput = useCallback(async () => {
     element.current?.pause();
     await synth.current?.pause();
+    setPlaying(false);
   }, []);
 
+  // load preference and try to start immediately
+  useEffect(() => {
+    const p = readPref();
+    enabledRef.current = p.enabled;
+    volumeRef.current = p.volume;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- hydrate persisted preference after mount
+    setEnabled(p.enabled);
+    setVol(p.volume);
+    if (p.enabled) void startOutput();
+  }, [startOutput]);
+
+  // autoplay was blocked → start on the first interaction anywhere on the page
+  useEffect(() => {
+    if (!waitingForGesture) return;
+    const onGesture = (e: Event) => {
+      if (!enabledRef.current || suspended.current) return;
+      // the sound button handles its own click (otherwise one tap would start and immediately mute)
+      if ((e.target as Element | null)?.closest?.("[data-audio-control]")) return;
+      void startOutput();
+    };
+    GESTURES.forEach((g) => document.addEventListener(g, onGesture, { capture: true, passive: true }));
+    return () => GESTURES.forEach((g) => document.removeEventListener(g, onGesture, { capture: true }));
+  }, [waitingForGesture, startOutput]);
+
   const play = useCallback(async () => {
-    try {
-      await startOutput(volume);
-      setPlaying(true);
-      setEnabled(true);
-      setDecided(true);
-      persist({ enabled: true, volume });
-    } catch {
-      setPlaying(false);
-    }
-  }, [startOutput, volume, persist]);
+    enabledRef.current = true;
+    setEnabled(true);
+    persist({ muted: false, volume: volumeRef.current });
+    if (!suspended.current) await startOutput();
+  }, [startOutput, persist]);
 
   const toggle = useCallback(async () => {
-    if (playing) {
-      await stopOutput();
-      setPlaying(false);
+    if (enabled) {
+      enabledRef.current = false;
       setEnabled(false);
-      setDecided(true);
-      persist({ enabled: false, volume });
+      setWaiting(false);
+      persist({ muted: true, volume: volumeRef.current });
+      await stopOutput();
     } else {
       await play();
     }
-  }, [playing, stopOutput, play, persist, volume]);
+  }, [enabled, play, stopOutput, persist]);
 
   const setVolume = useCallback(
     (v: number) => {
       setVol(v);
+      volumeRef.current = v;
       if (element.current) element.current.volume = v;
       synth.current?.setVolume(v * 0.9);
-      persist({ enabled, volume: v });
+      persist({ muted: !enabledRef.current, volume: v });
     },
-    [enabled, persist],
+    [persist],
   );
 
-  const dismiss = useCallback(() => {
-    setDecided(true);
-    persist({ enabled: false, volume });
-  }, [persist, volume]);
+  const suspend = useCallback(
+    (on: boolean) => {
+      if (suspended.current === on) return;
+      suspended.current = on;
+      if (on) {
+        element.current?.pause();
+        void synth.current?.pause();
+        setPlaying(false);
+      } else if (enabledRef.current && !document.hidden) void startOutput();
+    },
+    [startOutput],
+  );
 
   // pause when the tab is hidden, resume when visible again
   useEffect(() => {
     const onVis = () => {
-      if (!playing) return;
-      if (document.hidden) void stopOutput();
-      else void startOutput(volume);
+      if (!enabledRef.current || suspended.current) return;
+      if (document.hidden) {
+        element.current?.pause();
+        void synth.current?.pause();
+      } else void startOutput();
     };
     document.addEventListener("visibilitychange", onVis);
     return () => document.removeEventListener("visibilitychange", onVis);
-  }, [playing, startOutput, stopOutput, volume]);
+  }, [startOutput]);
 
   useEffect(
     () => () => {
@@ -147,8 +226,8 @@ export function AudioProvider({ children }: { children: React.ReactNode }) {
   );
 
   const value = useMemo(
-    () => ({ enabled, playing, volume, decided, toggle, play, setVolume, dismiss }),
-    [enabled, playing, volume, decided, toggle, play, setVolume, dismiss],
+    () => ({ enabled, playing, waitingForGesture, volume, source, toggle, play, setVolume, suspend }),
+    [enabled, playing, waitingForGesture, volume, source, toggle, play, setVolume, suspend],
   );
   return <AudioCtx.Provider value={value}>{children}</AudioCtx.Provider>;
 }

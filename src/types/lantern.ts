@@ -14,8 +14,24 @@ export type LanternFontId = (typeof LANTERN_FONT_IDS)[number];
 export const TEXT_POSITIONS = ["top", "center", "bottom"] as const;
 export type TextPosition = (typeof TEXT_POSITIONS)[number];
 
+/** Legacy package decorations (old payments only) */
 export const DECORATIONS = ["thai-frame", "sparkle-petals"] as const;
 export type Decoration = (typeof DECORATIONS)[number];
+
+/** Effects sold individually (prices live in catalog_items) */
+export const EFFECT_IDS = [
+  "fireworks",
+  "hearts",
+  "stars",
+  "petals",
+  "butterflies",
+  "fireflies",
+  "thai-frame",
+  "rainbow",
+  "golden-aura",
+] as const;
+export type EffectId = (typeof EFFECT_IDS)[number];
+export const isEffectId = (v: string): v is EffectId => (EFFECT_IDS as readonly string[]).includes(v);
 
 export interface TextConfig {
   font: LanternFontId;
@@ -47,7 +63,9 @@ export interface LanternVisual {
   design: LanternDesignId;
   /** Light color inside the lantern (#RRGGBB) */
   color: string;
-  decoration: Decoration | null;
+  effects: EffectId[];
+  /** money put into the lantern (THB) – shown as a gold coin badge above it */
+  offering: number;
   displayName: string;
   wishMessage: string;
   blessingMessage: string;
@@ -78,6 +96,8 @@ export interface MyLanternSummary {
   releasedAt: string | null;
   expiresAt: string | null;
   packageName: string | null;
+  effects: EffectId[];
+  offering: number;
 }
 
 export type LanternStatus = "pending_payment" | "active" | "expired" | "removed" | "cancelled";

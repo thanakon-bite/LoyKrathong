@@ -1,0 +1,13 @@
+# Netlify – Next.js is detected automatically (OpenNext adapter); no plugin needs to be installed.
+[build]
+  command = "npm run build"
+  publish = ".next"
+
+[build.environment]
+  NODE_VERSION = "22"
+  # Netlify's build image is Linux, so sharp gets the right native binary for upload processing
+  NPM_FLAGS = "--include=optional"
+
+# Retention job (replaces the Vercel cron in vercel.json) – every 10 minutes, UTC
+[functions."cleanup-cron"]
+  schedule = "*/10 * * * *"

@@ -58,15 +58,19 @@ export async function signedUrl(path: string, expiresInSeconds: number) {
   return data.signedUrl;
 }
 
+/** Signed URLs never outlive their lantern and are re-issued on every fetch (clients resync often) */
+const MAX_SIGNED_SECONDS = 6 * 3600;
+
 /**
- * Signs many paths. Paths are grouped by expiry bucket (per minute) so each URL
- * stops working at most ~60 s after its lantern expires.
+ * Signs many paths. Paths are grouped by expiry bucket so each URL stops working when its
+ * lantern expires (or after MAX_SIGNED_SECONDS, whichever is sooner).
  */
 export async function signMany(items: Array<{ path: string; expiresInSeconds: number }>) {
   const result = new Map<string, string>();
   const groups = new Map<number, string[]>();
   for (const it of items) {
-    const bucket = Math.max(60, Math.ceil(it.expiresInSeconds / 60) * 60);
+    const capped = Math.min(it.expiresInSeconds, MAX_SIGNED_SECONDS);
+    const bucket = Math.max(60, Math.ceil(capped / 600) * 600);
     const list = groups.get(bucket) ?? [];
     list.push(it.path);
     groups.set(bucket, list);

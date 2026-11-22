@@ -1,9 +1,8 @@
 import "server-only";
 import { NextResponse } from "next/server";
 import { ZodError } from "zod";
-import type { User } from "@supabase/supabase-js";
 import { ConfigError } from "@/lib/env";
-import { getCurrentUser } from "@/lib/supabase/server";
+import { getCurrentUser, type AuthUser } from "@/lib/supabase/server";
 import { logError } from "@/services/logger";
 
 export class ApiError extends Error {
@@ -46,7 +45,7 @@ export function getClientIp(req: Request) {
   return req.headers.get("x-real-ip") ?? "unknown";
 }
 
-export async function requireUser(): Promise<User> {
+export async function requireUser(): Promise<AuthUser> {
   const user = await getCurrentUser();
   if (!user) throw new ApiError(401, "unauthorized", "กรุณาเริ่มเซสชันก่อนใช้งาน");
   return user;

@@ -253,7 +253,8 @@ export function buildFaceTextures(
   ctx.textBaseline = "top";
 
   drawPattern(ctx, design.pattern, w, h);
-  if (visual.decoration === "thai-frame") drawThaiFrame(ctx, w, h);
+  const thaiFrame = visual.effects?.includes("thai-frame");
+  if (thaiFrame) drawThaiFrame(ctx, w, h);
 
   if (assets.image && visual.imageConfig) {
     const r = imageRect(visual.imageConfig, assets.image, w, h);
@@ -302,7 +303,7 @@ export function buildFaceTextures(
   ctx.textAlign = "left";
   ctx.textBaseline = "top";
   drawPattern(ctx, design.pattern, w, h);
-  if (visual.decoration === "thai-frame") drawThaiFrame(ctx, w, h);
+  if (thaiFrame) drawThaiFrame(ctx, w, h);
 
   const sideTop = h * 0.1;
   let sideBottom = h * 0.9;
@@ -338,6 +339,8 @@ export function buildFaceTextures(
     });
   }
 
+  // version stamp lets the renderer know its baked copy is stale (canvases are pooled & reused)
+  for (const c of [front, side] as Array<HTMLCanvasElement & { __v?: number }>) c.__v = (c.__v ?? 0) + 1;
   return { front, side };
 }
 

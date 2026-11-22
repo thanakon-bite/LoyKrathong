@@ -1,4 +1,8 @@
-import type { Decoration, LanternDesignId } from "@/types/lantern";
+import type { EffectId, LanternDesignId } from "@/types/lantern";
+import { glowSprite } from "./render-sprites";
+import { drawEffects, drawOfferingBadge } from "./effects";
+
+export { glowSprite };
 import { mixHex, rgba } from "@/lib/utils";
 import { LANTERN_DESIGNS } from "./designs";
 import { FACE_ASPECT, TEX_H, TEX_W, type FaceTextures } from "./texture";
@@ -26,7 +30,10 @@ export interface DrawLanternParams {
   alpha: number;
   design: LanternDesignId;
   light: string;
-  decoration?: Decoration | null;
+  /** paid add-on effects */
+  effects?: EffectId[];
+  /** money put into the lantern – shown as a coin badge above it */
+  offering?: number;
   textures?: FaceTextures | null;
   time: number;
   highlight?: number;
@@ -49,26 +56,6 @@ type V2 = [number, number];
 const HALF = 1;
 const HEIGHT = 2 * FACE_ASPECT;
 
-const glowSprites = new Map<string, HTMLCanvasElement>();
-const SPRITE = 128;
-
-/** Pre-rendered radial glow per light colour – much cheaper than per-frame gradients */
-export function glowSprite(color: string): HTMLCanvasElement {
-  let c = glowSprites.get(color);
-  if (c) return c;
-  c = document.createElement("canvas");
-  c.width = c.height = SPRITE;
-  const g = c.getContext("2d")!;
-  const grad = g.createRadialGradient(SPRITE / 2, SPRITE / 2, 0, SPRITE / 2, SPRITE / 2, SPRITE / 2);
-  grad.addColorStop(0, rgba(color, 0.9));
-  grad.addColorStop(0.25, rgba(color, 0.45));
-  grad.addColorStop(0.6, rgba(color, 0.12));
-  grad.addColorStop(1, rgba(color, 0));
-  g.fillStyle = grad;
-  g.fillRect(0, 0, SPRITE, SPRITE);
-  glowSprites.set(color, c);
-  return c;
-}
 
 let fiberPattern: HTMLCanvasElement | null = null;
 /** Subtle paper fibre texture */
@@ -140,43 +127,61 @@ function faceTransform(ctx: CanvasRenderingContext2D, tl: V2, tr: V2, bl: V2) {
   );
 }
 
-function drawSparkles(ctx: CanvasRenderingContext2D, cx: number, cy: number, u: number, time: number, seed: number, light: string, alpha: number) {
-  ctx.save();
-  ctx.globalCompositeOperation = "lighter";
-  for (let i = 0; i < 7; i++) {
-    const a = time * 0.5 + (i / 7) * Math.PI * 2 + seed;
-    const r = u * (2.3 + Math.sin(time * 1.3 + i) * 0.25);
-    const x = cx + Math.cos(a) * r;
-    const y = cy + Math.sin(a) * r * 0.45 - u * 0.4;
-    const s = u * (0.06 + 0.035 * Math.sin(time * 3 + i * 2));
-    ctx.globalAlpha = alpha * (0.55 + 0.45 * Math.sin(time * 2.4 + i));
-    ctx.fillStyle = "#fff6d8";
-    ctx.beginPath();
-    ctx.moveTo(x, y - s * 2);
-    ctx.quadraticCurveTo(x, y, x + s * 2, y);
-    ctx.quadraticCurveTo(x, y, x, y + s * 2);
-    ctx.quadraticCurveTo(x, y, x - s * 2, y);
-    ctx.quadraticCurveTo(x, y, x, y - s * 2);
-    ctx.fill();
+const BAKE_RES = 0.5;
+const plainFaces = new Map<string, HTMLCanvasElement>();
+const bakedFaces = new WeakMap<HTMLCanvasElement, { key: string; canvas: HTMLCanvasElement }>();
+
+/** Paper face fully lit (glow = 1): gradient + fibres + ink + fold shading, rendered once */
+function bakeFace(design: LanternDesignId, light: string, ink: HTMLCanvasElement | null) {
+  const d = LANTERN_DESIGNS[design];
+  const c = document.createElement("canvas");
+  c.width = Math.round(TEX_W * BAKE_RES);
+  c.height = Math.round(TEX_H * BAKE_RES);
+  const g = c.getContext("2d")!;
+  g.scale(BAKE_RES, BAKE_RES);
+  const lit = mixHex(d.paperLit, light, 0.5);
+  const mid = mixHex(d.paper, light, 0.45);
+  const edge = mixHex(mixHex(d.paper, light, 0.3), "#3a1c06", 0.45);
+  const grad = g.createRadialGradient(TEX_W * 0.5, TEX_H * 1.02, TEX_W * 0.05, TEX_W * 0.5, TEX_H * 0.85, TEX_H * 1.15);
+  grad.addColorStop(0, mixHex(lit, "#fff7e2", 0.45));
+  grad.addColorStop(0.3, lit);
+  grad.addColorStop(0.68, mid);
+  grad.addColorStop(1, mixHex(edge, "#000000", 0.08));
+  g.fillStyle = grad;
+  g.fillRect(0, 0, TEX_W, TEX_H);
+  g.globalAlpha = 0.6;
+  g.drawImage(fiberCanvas(), 0, 0, TEX_W, TEX_H);
+  g.globalAlpha = 0.95;
+  if (ink) g.drawImage(ink, 0, 0, TEX_W, TEX_H);
+  g.globalAlpha = 1;
+  const eg = g.createLinearGradient(0, 0, TEX_W, 0);
+  eg.addColorStop(0, "rgba(60, 30, 5, 0.22)");
+  eg.addColorStop(0.08, "rgba(60, 30, 5, 0)");
+  eg.addColorStop(0.92, "rgba(60, 30, 5, 0)");
+  eg.addColorStop(1, "rgba(60, 30, 5, 0.22)");
+  g.fillStyle = eg;
+  g.fillRect(0, 0, TEX_W, TEX_H);
+  return c;
+}
+
+function bakedFace(design: LanternDesignId, light: string, ink: HTMLCanvasElement | null): HTMLCanvasElement {
+  const key = `${design}|${light}`;
+  if (!ink) {
+    let c = plainFaces.get(key);
+    if (!c) {
+      c = bakeFace(design, light, null);
+      plainFaces.set(key, c);
+    }
+    return c;
   }
-  ctx.globalCompositeOperation = "source-over";
-  for (let i = 0; i < 4; i++) {
-    const a = -time * 0.3 + (i / 4) * Math.PI * 2 + seed * 2;
-    const r = u * 1.9;
-    const x = cx + Math.cos(a) * r;
-    const y = cy + u * 0.35 + Math.sin(a) * r * 0.3;
-    ctx.globalAlpha = alpha * 0.85;
-    ctx.fillStyle = i % 2 ? "#ffb3c7" : "#ffd1dc";
-    ctx.save();
-    ctx.translate(x, y);
-    ctx.rotate(a * 2);
-    ctx.beginPath();
-    ctx.ellipse(0, 0, u * 0.14, u * 0.06, 0, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.restore();
-  }
-  ctx.restore();
-  void light;
+  // ink canvases are reused/pooled – the version counter invalidates the bake when content changes
+  const version = (ink as HTMLCanvasElement & { __v?: number }).__v ?? 0;
+  const fullKey = `${key}|${version}`;
+  const hit = bakedFaces.get(ink);
+  if (hit && hit.key === fullKey) return hit.canvas;
+  const canvas = bakeFace(design, light, ink);
+  bakedFaces.set(ink, { key: fullKey, canvas });
+  return canvas;
 }
 
 /**
@@ -202,11 +207,7 @@ export function drawLantern(ctx: CanvasRenderingContext2D, p: DrawLanternParams)
   }
   const P = (v: V3) => project(v, cosY, sinY, cosP, sinP, u, p.x, p.y);
 
-  const lit = mixHex(design.paperLit, p.light, 0.5);
   const dimPaper = mixHex(design.paper, "#20160c", 0.55);
-  const paperLit = mixHex(dimPaper, lit, glow);
-  const paperMid = mixHex(dimPaper, mixHex(design.paper, p.light, 0.45), glow);
-  const paperEdge = mixHex(dimPaper, mixHex(mixHex(design.paper, p.light, 0.3), "#3a1c06", 0.45), glow);
 
   // ---------- halo ----------
   if (p.halo !== false && glow > 0.02) {
@@ -219,6 +220,13 @@ export function drawLantern(ctx: CanvasRenderingContext2D, p: DrawLanternParams)
     ctx.drawImage(sprite, hx - r, hy - r, r * 2, r * 2);
     ctx.restore();
   }
+
+  const fxFrame = () => {
+    const [cx, cy] = P([0, HEIGHT * 0.5, 0]);
+    const [, ty] = P([0, HEIGHT, -HALF]);
+    return { cx, cy, top: ty, base: p.y, u, time: p.time, seed: p.seed ?? 0, alpha: p.alpha };
+  };
+  if (p.effects?.length && !simple) drawEffects(ctx, p.effects, fxFrame(), "back");
 
   // ---------- wooden base ----------
   if (!simple) {
@@ -290,40 +298,18 @@ export function drawLantern(ctx: CanvasRenderingContext2D, p: DrawLanternParams)
     const bl = P(f.bl);
     const br: V2 = [tr[0] + bl[0] - tl[0], tr[1] + bl[1] - tl[1]];
 
-    ctx.save();
-    quad(ctx, tl, tr, br, bl);
-    ctx.clip();
+    // back face mirrors the side writing so a full 360° spin never shows an empty wall
+    const tex = p.textures ? (f.key === "front" ? p.textures.front : p.textures.side) : null;
+    const baked = bakedFace(p.design, p.light, simple ? null : tex);
     ctx.save();
     faceTransform(ctx, tl, tr, bl);
-    const shade = 0.72 + 0.28 * nzr;
-    const g = ctx.createRadialGradient(TEX_W * 0.5, TEX_H * 1.02, TEX_W * 0.05, TEX_W * 0.5, TEX_H * 0.85, TEX_H * 1.15);
-    g.addColorStop(0, mixHex(paperLit, "#fff7e2", 0.45 * glow));
-    g.addColorStop(0.3, paperLit);
-    g.addColorStop(0.68, mixHex(paperMid, "#000000", 1 - shade));
-    g.addColorStop(1, mixHex(paperEdge, "#000000", (1 - shade) + 0.08));
-    ctx.fillStyle = g;
-    ctx.fillRect(0, 0, TEX_W, TEX_H);
-
-    if (!simple) {
-      ctx.globalAlpha = p.alpha * 0.6;
-      ctx.drawImage(fiberCanvas(), 0, 0, TEX_W, TEX_H);
-      ctx.globalAlpha = p.alpha;
-      const tex = p.textures ? (f.key === "front" ? p.textures.front : f.key === "back" ? null : p.textures.side) : null;
-      if (tex) {
-        ctx.globalAlpha = p.alpha * (0.55 + 0.4 * glow);
-        ctx.drawImage(tex, 0, 0, TEX_W, TEX_H);
-        ctx.globalAlpha = p.alpha;
-      }
-      // darker edges where the paper folds
-      const eg = ctx.createLinearGradient(0, 0, TEX_W, 0);
-      eg.addColorStop(0, "rgba(60, 30, 5, 0.22)");
-      eg.addColorStop(0.08, "rgba(60, 30, 5, 0)");
-      eg.addColorStop(0.92, "rgba(60, 30, 5, 0)");
-      eg.addColorStop(1, "rgba(60, 30, 5, 0.22)");
-      ctx.fillStyle = eg;
+    ctx.drawImage(baked, 0, 0, TEX_W, TEX_H);
+    // side shading + dimming while the candle ignites / fades – one cheap overlay
+    const dark = (1 - (0.72 + 0.28 * nzr)) * 0.9 + (1 - glow) * 0.62;
+    if (dark > 0.01) {
+      ctx.fillStyle = `rgba(28, 18, 8, ${Math.min(0.85, dark)})`;
       ctx.fillRect(0, 0, TEX_W, TEX_H);
     }
-    ctx.restore();
     ctx.restore();
 
     // outline
@@ -354,12 +340,17 @@ export function drawLantern(ctx: CanvasRenderingContext2D, p: DrawLanternParams)
     ctx.restore();
   }
 
-  if (p.decoration === "sparkle-petals" && !simple) {
-    const [cx, cy] = P([0, HEIGHT * 0.5, 0]);
-    drawSparkles(ctx, cx, cy, u, p.time, p.seed ?? 0, p.light, p.alpha);
+  if (p.effects?.length && !simple) {
+    drawEffects(ctx, p.effects, fxFrame(), "front");
   }
 
   ctx.restore();
+
+  if (p.offering && p.offering > 0 && p.size >= 16) {
+    const [bx] = P([0, HEIGHT, 0]);
+    const [, by] = P([0, HEIGHT, -HALF]);
+    drawOfferingBadge(ctx, p.offering, bx, by, u, p.alpha, p.time);
+  }
 
   // bounding box
   const pts = [

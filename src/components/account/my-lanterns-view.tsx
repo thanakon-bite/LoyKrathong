@@ -1,5 +1,6 @@
 "use client";
 
+import { EFFECT_META } from "@/lib/lantern/effects-meta";
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
@@ -9,6 +10,7 @@ import { useAuth } from "@/components/providers/auth-provider";
 import { apiFetch } from "@/lib/api-client";
 import { LANTERN_DESIGNS } from "@/lib/lantern/designs";
 import { formatDateTime, formatTHB } from "@/lib/utils";
+import { formatRemaining } from "@/lib/lantern/motion";
 import type { LanternStatus, MyLanternSummary } from "@/types/lantern";
 import type { PaymentRecord, PaymentStatus } from "@/types/payment";
 import { Badge } from "@/components/ui/badge";
@@ -16,6 +18,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { AccountCard } from "./account-card";
+import { MyRiver } from "./my-river";
 
 interface MeResponse {
   lanterns: MyLanternSummary[];
@@ -26,7 +29,7 @@ interface MeResponse {
 const LANTERN_STATUS: Record<LanternStatus, { label: string; variant: "success" | "warning" | "muted" | "danger" }> = {
   active: { label: "กำลังลอย", variant: "success" },
   pending_payment: { label: "รอชำระเงิน", variant: "warning" },
-  expired: { label: "ลอยหายไปแล้ว", variant: "muted" },
+  expired: { label: "ลอยในสายน้ำของฉัน", variant: "muted" },
   removed: { label: "ถูกซ่อน", variant: "danger" },
   cancelled: { label: "ยกเลิก", variant: "muted" },
 };
@@ -47,12 +50,7 @@ function Remaining({ expiresAt, offset }: { expiresAt: string; offset: number })
     return () => clearInterval(t);
   }, []);
   const ms = Date.parse(expiresAt) - (now + offset);
-  if (ms <= 0) return <span>กำลังจางหาย</span>;
-  return (
-    <span className="tabular-nums">
-      เหลือ {Math.floor(ms / 60000)}:{String(Math.floor((ms % 60000) / 1000)).padStart(2, "0")} นาที
-    </span>
-  );
+  return <span className="tabular-nums">{ms > 0 ? `ลอยอีก ${formatRemaining(ms)}` : formatRemaining(ms)}</span>;
 }
 
 export function MyLanternsView() {
@@ -62,6 +60,8 @@ export function MyLanternsView() {
   const [offset, setOffset] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [riverKey, setRiverKey] = useState(0);
+  const [serverNow, setServerNow] = useState(0);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -71,6 +71,8 @@ export function MyLanternsView() {
       const res = await apiFetch<MeResponse>("/api/me");
       setOffset(Date.parse(res.serverTime) + (Date.now() - t0) / 2 - Date.now());
       setData(res);
+      setServerNow(Date.parse(res.serverTime));
+      setRiverKey((k) => k + 1);
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -106,6 +108,8 @@ export function MyLanternsView() {
   return (
     <div className="space-y-8">
       <AccountCard onChanged={load} />
+
+      {riverKey > 0 && <MyRiver userId={user.id} reloadKey={riverKey} />}
 
       <section aria-labelledby="mine-title" className="space-y-4">
         <div className="flex items-center justify-between">
@@ -147,14 +151,16 @@ export function MyLanternsView() {
                 <div className="min-w-0 flex-1 space-y-1">
                   <div className="flex flex-wrap items-center gap-2">
                     <Badge variant={s.variant}>{s.label}</Badge>
-                    {l.packageName && <span className="text-xs text-warm/45">{l.packageName}</span>}
+                    {l.offering > 0 && <span className="rounded-full bg-gold/90 px-2 py-0.5 text-xs font-semibold text-night">🪙 ฿{l.offering.toLocaleString("th-TH")}</span>}
+                    {l.effects.length > 0 && <span className="text-xs text-warm/55">{l.effects.map((e) => EFFECT_META[e].emoji).join(" ")}</span>}
+                    {!l.effects.length && !l.offering && l.packageName && <span className="text-xs text-warm/45">{l.packageName}</span>}
                   </div>
                   <p className="truncate text-warm">{l.displayName}</p>
                   {l.wishMessage && <p className="line-clamp-2 text-sm text-warm/60">{l.wishMessage}</p>}
                   <p className="text-xs text-warm/45">
                     {l.status === "active" && l.expiresAt ? <Remaining expiresAt={l.expiresAt} offset={offset} /> : formatDateTime(l.createdAt)}
                   </p>
-                  {l.status === "active" && (
+                  {l.status === "active" && l.expiresAt && Date.parse(l.expiresAt) > serverNow && (
                     <Button asChild size="sm" variant="outline" className="mt-2">
                       <Link href={`/festival?focus=${l.id}`}>
                         <Eye /> ดูในเทศกาล

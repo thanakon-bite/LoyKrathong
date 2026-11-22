@@ -13,19 +13,26 @@ interface Props {
   focusId: string | null;
   onLanternClick?: (id: string) => void;
   onOwnerVisibility?: (visible: boolean) => void;
+  onUserNavigate?: () => void;
+  /** increment to reset the camera to the default view */
+  resetSignal?: number;
+  /** owner's river: lanterns never expire */
+  keepAlive?: boolean;
   className?: string;
 }
 
 /** Full-screen festival scene (Canvas 2D, requestAnimationFrame) */
-export function FestivalCanvas({ lanterns, serverOffset, userId, follow, focusId, onLanternClick, onOwnerVisibility, className }: Props) {
+export function FestivalCanvas({ lanterns, serverOffset, userId, follow, focusId, onLanternClick, onOwnerVisibility, onUserNavigate, resetSignal = 0, keepAlive = false, className }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const engineRef = useRef<FestivalEngine | null>(null);
   const clickRef = useRef(onLanternClick);
   const visRef = useRef(onOwnerVisibility);
+  const navRef = useRef(onUserNavigate);
 
   useEffect(() => {
     clickRef.current = onLanternClick;
     visRef.current = onOwnerVisibility;
+    navRef.current = onUserNavigate;
   });
 
   useEffect(() => {
@@ -35,6 +42,8 @@ export function FestivalCanvas({ lanterns, serverOffset, userId, follow, focusId
       interactive: true,
       onLanternClick: (id) => clickRef.current?.(id),
       onOwnerVisibility: (v) => visRef.current?.(v),
+      onUserNavigate: () => navRef.current?.(),
+      keepAlive,
     });
     engineRef.current = engine;
     engine.start();
@@ -45,6 +54,7 @@ export function FestivalCanvas({ lanterns, serverOffset, userId, follow, focusId
       engine.destroy();
       engineRef.current = null;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- engine is created once; keepAlive is fixed per mount
   }, []);
 
   useEffect(() => {
@@ -67,12 +77,18 @@ export function FestivalCanvas({ lanterns, serverOffset, userId, follow, focusId
     engineRef.current?.replaceAll(lanterns.map(toEngineLantern));
   }, [lanterns]);
 
+  useEffect(() => {
+    if (resetSignal) engineRef.current?.resetView();
+  }, [resetSignal]);
+
   return (
     <canvas
       ref={canvasRef}
-      className={cn("block h-full w-full touch-manipulation select-none", className)}
+      // touch-none: the scene handles drag / pinch itself instead of the browser scrolling or zooming
+      className={cn("block h-full w-full cursor-grab touch-none select-none outline-none", className)}
+      tabIndex={0}
       role="img"
-      aria-label="ฉากเทศกาลลอยโคม แสดงโคมอธิษฐานที่กำลังลอยอยู่บนผิวน้ำ คลิกที่โคมเพื่อดูคำอธิษฐาน"
+      aria-label="ฉากเทศกาลลอยโคม ลากหรือใช้ปุ่มลูกศรเพื่อเลื่อนมุมมอง คลิกที่โคมเพื่ออ่านคำอธิษฐาน"
     />
   );
 }

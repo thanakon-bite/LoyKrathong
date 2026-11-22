@@ -1,25 +1,32 @@
 import "server-only";
 import type Stripe from "stripe";
 import { ApiError } from "@/lib/api";
-import { publicEnv, promptPayEnabled } from "@/lib/env";
+import { publicEnv, stripePaymentMethods } from "@/lib/env";
 import { getAdminSupabase } from "@/lib/supabase/admin";
 import { fromMinorUnit, getStripe, toMinorUnit } from "@/lib/stripe/server";
 import type { LanternInput } from "@/lib/security/validation";
-import type { CheckoutStatus, FestivalPackage, PaymentRecord, PaymentStatus } from "@/types/payment";
+import type { CheckoutStatus, PaymentRecord, PaymentStatus } from "@/types/payment";
+import type { Quote, Selection } from "@/types/catalog";
 import { createPendingLantern, findLanternByRequest } from "./lantern-service";
 import { log } from "./logger";
 
 /** Stripe Checkout sessions must live at least 30 minutes */
 const CHECKOUT_TTL_SECONDS = 30 * 60;
 
+/** Short human summary stored with the payment, e.g. "โคม + พลุ, หัวใจ + ใส่เงิน ฿99" */
+function summarize(q: Quote) {
+  const parts = q.lines.map((l) => (l.kind === "offering" ? `ใส่เงิน ฿${l.amount}` : l.name.replace(/^(สีโคม|เอฟเฟกต์) /, "")));
+  return `โคมอธิษฐาน${parts.length ? ` + ${parts.join(", ")}` : ""}`.slice(0, 200);
+}
+
 export async function createCheckoutSession(
   userId: string,
   input: LanternInput,
-  pkg: FestivalPackage,
+  selection: Selection,
+  q: Quote,
   requestId: string,
 ): Promise<{ url: string; paymentId: string }> {
-  if (pkg.price <= 0) throw new ApiError(400, "free_package", "แพ็กเกจนี้ไม่ต้องชำระเงิน");
-  if (pkg.currency !== "thb") throw new ApiError(400, "currency", "รองรับเฉพาะสกุลเงินบาท (THB)");
+  if (q.total <= 0) throw new ApiError(400, "free", "รายการนี้ไม่ต้องชำระเงิน");
 
   const db = getAdminSupabase();
   const stripe = getStripe();
@@ -38,7 +45,7 @@ export async function createCheckoutSession(
     throw new ApiError(409, "session_closed", "รายการชำระเงินเดิมปิดไปแล้ว กรุณาเริ่มสร้างรายการใหม่");
   }
 
-  const lanternId = await createPendingLantern(userId, input, pkg, requestId);
+  const lanternId = await createPendingLantern(userId, input, selection, requestId);
   if (!lanternId) throw new ApiError(409, "duplicate_request", "คำขอซ้ำ กรุณาลองใหม่");
 
   const { data: payment, error: payErr } = await db
@@ -46,10 +53,11 @@ export async function createCheckoutSession(
     .insert({
       user_id: userId,
       lantern_id: lanternId,
-      package_id: pkg.id,
-      package_name: pkg.name,
-      amount: pkg.price,
+      package_id: null,
+      package_name: summarize(q),
+      amount: q.total,
       currency: "thb",
+      line_items: q.lines,
       payment_status: "pending",
     })
     .select("id")
@@ -59,7 +67,14 @@ export async function createCheckoutSession(
   await db.from("lanterns").update({ payment_id: payment.id }).eq("id", lanternId);
 
   const appUrl = publicEnv.appUrl;
-  const metadata = { payment_id: payment.id, lantern_id: lanternId, user_id: userId, package: pkg.slug };
+  const offering = q.lines.find((l) => l.kind === "offering")?.amount ?? 0;
+  const metadata = {
+    payment_id: payment.id,
+    lantern_id: lanternId,
+    user_id: userId,
+    effects: selection.effects.join(",").slice(0, 400),
+    offering: String(offering),
+  };
   let session: Stripe.Checkout.Session;
   try {
     session = await stripe.checkout.sessions.create(
@@ -68,20 +83,19 @@ export async function createCheckoutSession(
         locale: "th",
         currency: "thb",
         // Filter on payment methods enabled in the Stripe Dashboard
-        allowed_payment_method_types: promptPayEnabled() ? ["card", "promptpay"] : ["card"],
-        line_items: [
-          {
-            quantity: 1,
-            price_data: {
-              currency: "thb",
-              unit_amount: toMinorUnit(pkg.price),
-              product_data: {
-                name: `โคมอธิษฐาน – ${pkg.name}`,
-                description: pkg.description.slice(0, 250) || undefined,
-              },
+        allowed_payment_method_types: stripePaymentMethods(),
+        // one Stripe line per item, so the receipt shows exactly what was bought
+        line_items: q.lines.map((l) => ({
+          quantity: 1,
+          price_data: {
+            currency: "thb",
+            unit_amount: toMinorUnit(l.amount),
+            product_data: {
+              name: l.kind === "offering" ? "ใส่เงินลงกระทง" : l.name,
+              description: l.kind === "offering" ? "ยอดที่ใส่ลงในโคม แสดงบนโคมในเทศกาล" : undefined,
             },
           },
-        ],
+        })),
         client_reference_id: payment.id,
         metadata,
         payment_intent_data: { metadata, description: `Loy Krathong lantern ${lanternId}` },

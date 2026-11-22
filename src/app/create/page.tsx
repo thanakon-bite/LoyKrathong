@@ -12,10 +12,10 @@ export const metadata: Metadata = pageMetadata({
 export default function CreatePage() {
   return (
     <PageShell className="max-w-7xl pb-32 lg:pb-24" footer={false}>
-      <header className="mb-8">
-        <p className="mb-2 text-sm tracking-[0.2em] text-gold">LANTERN STUDIO</p>
-        <h1 className="font-display text-3xl font-light text-warm sm:text-4xl">สร้างโคมอธิษฐาน</h1>
-        <p className="mt-2 max-w-2xl text-warm/60">ทุกตัวอักษรและลายเส้นของคุณจะปรากฏบนผิวกระดาษของโคมจริง ภายใต้แสงเทียนสีทอง</p>
+      <header className="mb-4 sm:mb-8">
+        <p className="mb-2 hidden text-sm tracking-[0.2em] text-gold sm:block">LANTERN STUDIO</p>
+        <h1 className="font-display text-2xl font-light text-warm sm:text-4xl">สร้างโคมอธิษฐาน</h1>
+        <p className="mt-2 hidden max-w-2xl text-warm/60 sm:block">ทุกตัวอักษรและลายเส้นของคุณจะปรากฏบนผิวกระดาษของโคมจริง ภายใต้แสงเทียนสีทอง</p>
       </header>
       <Studio />
     </PageShell>

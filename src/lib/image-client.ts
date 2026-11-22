@@ -48,7 +48,18 @@ export async function cropAndCompress(
   return webp.startsWith("data:image/webp") ? webp : c.toDataURL("image/jpeg", quality);
 }
 
+/**
+ * Decodes a data: URL into a Blob without fetch() – fetching data: URLs is blocked by
+ * the Content-Security-Policy (connect-src), and decoding locally is faster anyway.
+ */
 export async function dataUrlToBlob(dataUrl: string): Promise<Blob> {
-  const res = await fetch(dataUrl);
-  return res.blob();
+  const match = /^data:([^;,]+)?(;base64)?,(.*)$/s.exec(dataUrl);
+  if (!match) throw new Error("รูปแบบไฟล์รูปไม่ถูกต้อง");
+  const mime = match[1] || "application/octet-stream";
+  const payload = match[3];
+  if (!match[2]) return new Blob([decodeURIComponent(payload)], { type: mime });
+  const binary = atob(payload);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return new Blob([bytes], { type: mime });
 }

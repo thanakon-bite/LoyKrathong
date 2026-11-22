@@ -5,13 +5,13 @@ import { FestivalEngine } from "@/lib/scene/engine";
 import { cn } from "@/lib/utils";
 
 /** Landing-page background: night water with decorative (non-interactive) lanterns */
-export function DecorativeScene({ className, count = 22 }: { className?: string; count?: number }) {
+export function DecorativeScene({ className, count = 16 }: { className?: string; count?: number }) {
   const ref = useRef<HTMLCanvasElement>(null);
 
   useEffect(() => {
     const canvas = ref.current;
     if (!canvas) return;
-    const engine = new FestivalEngine(canvas, { interactive: false });
+    const engine = new FestivalEngine(canvas, { interactive: false, maxFps: 30 });
     const narrow = window.innerWidth < 640;
     engine.populateDecorative(narrow ? Math.round(count * 0.6) : count);
     engine.start();

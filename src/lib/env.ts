@@ -12,7 +12,32 @@ export const publicEnv = {
   festivalEnd: process.env.NEXT_PUBLIC_FESTIVAL_END || "2026-11-25T02:00:00+07:00",
 };
 
-export const isSupabaseConfigured = () => Boolean(publicEnv.supabaseUrl && publicEnv.supabaseAnonKey);
+/** true only for an absolute http(s) URL, e.g. https://xxxx.supabase.co */
+export function isValidHttpUrl(value: string | undefined | null): value is string {
+  if (!value) return false;
+  try {
+    const u = new URL(value);
+    return u.protocol === "https:" || u.protocol === "http:";
+  } catch {
+    return false;
+  }
+}
+
+let warned = false;
+export const isSupabaseConfigured = () => {
+  if (!publicEnv.supabaseUrl || !publicEnv.supabaseAnonKey) return false;
+  if (!isValidHttpUrl(publicEnv.supabaseUrl)) {
+    if (!warned) {
+      warned = true;
+      console.error(
+        `[config] NEXT_PUBLIC_SUPABASE_URL is not a valid URL: "${publicEnv.supabaseUrl}". ` +
+          "Use the Project URL, e.g. https://abcdefghijklmnop.supabase.co",
+      );
+    }
+    return false;
+  }
+  return true;
+};
 
 export class ConfigError extends Error {
   constructor(name: string) {
@@ -29,4 +54,8 @@ export function serverEnv(name: "SUPABASE_SERVICE_ROLE_KEY" | "STRIPE_SECRET_KEY
   return value;
 }
 
-export const promptPayEnabled = () => process.env.STRIPE_ENABLE_PROMPTPAY === "true";
+/** QR-only checkout: PromptPay QR (any Thai bank app) is the only payment method */
+export const qrOnlyPayment = () => process.env.NEXT_PUBLIC_PAYMENT_QR_ONLY === "true";
+export const promptPayEnabled = () => qrOnlyPayment() || process.env.STRIPE_ENABLE_PROMPTPAY === "true";
+export const stripePaymentMethods = (): Array<"card" | "promptpay"> =>
+  qrOnlyPayment() ? ["promptpay"] : promptPayEnabled() ? ["card", "promptpay"] : ["card"];

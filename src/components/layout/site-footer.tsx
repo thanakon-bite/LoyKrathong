@@ -4,10 +4,10 @@ import { Logo } from "./logo";
 export function SiteFooter() {
   return (
     <footer className="relative border-t border-white/5 bg-night">
-      <div className="mx-auto grid max-w-7xl gap-8 px-4 py-12 sm:px-6 md:grid-cols-[2fr_1fr_1fr]">
-        <div className="space-y-3">
+      <div className="mx-auto grid max-w-7xl grid-cols-2 gap-6 px-4 py-8 sm:px-6 md:grid-cols-[2fr_1fr_1fr] md:gap-8 md:py-12">
+        <div className="col-span-2 space-y-3 md:col-span-1">
           <Logo />
-          <p className="max-w-sm text-sm leading-relaxed text-warm/55">
+          <p className="hidden max-w-sm text-sm leading-relaxed text-warm/55 md:block">
             ส่งคำอธิษฐานของคุณให้ลอยไปกับแสงแห่งความหวัง ร่วมปล่อยโคมอธิษฐานออนไลน์กับผู้คนทั่วโลกในคืนวันเพ็ญเดือนสิบสอง
           </p>
         </div>
@@ -29,7 +29,7 @@ export function SiteFooter() {
         </div>
       </div>
       <p className="border-t border-white/5 py-5 text-center text-xs text-warm/35">
-        © {new Date().getFullYear()} ลอยกระทงออนไลน์ · Floating Wishes Under the Golden Night
+        © {new Date().getFullYear()} ลอยกระทงออนไลน์<span className="hidden sm:inline"> · Floating Wishes Under the Golden Night</span>
       </p>
     </footer>
   );

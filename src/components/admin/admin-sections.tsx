@@ -1,21 +1,15 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { ChevronLeft, ChevronRight, EyeOff, Loader2, Plus, RotateCcw, Save, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, EyeOff, RotateCcw, X } from "lucide-react";
 import { toast } from "sonner";
 import { apiFetch } from "@/lib/api-client";
 import { LANTERN_DESIGNS } from "@/lib/lantern/designs";
 import { formatDateTime, formatTHB } from "@/lib/utils";
-import { DECORATIONS, LANTERN_DESIGN_IDS } from "@/types/lantern";
-import type { FestivalPackage } from "@/types/payment";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Switch } from "@/components/ui/switch";
-import { Textarea } from "@/components/ui/textarea";
 
 function useAdminList<T>(url: string) {
   const [data, setData] = useState<T | null>(null);
@@ -244,196 +238,12 @@ export function ReportsAdmin({ onChanged }: { onChanged: () => void }) {
   );
 }
 
-// ------------------------------------------------------------------ packages
-
-type EditablePackage = Omit<FestivalPackage, "id"> & { id?: string };
-
-const emptyPackage = (): EditablePackage => ({
-  slug: "",
-  name: "",
-  description: "",
-  price: 0,
-  currency: "thb",
-  sortOrder: 10,
-  isActive: false,
-  features: { designs: ["classic-golden", "warm-white", "sunset-orange", "romantic-pink"], allowImage: true, allowDrawing: true, decoration: null, highlights: [] },
-});
-
-function PackageEditor({ initial, onSaved, onCancel }: { initial: EditablePackage; onSaved: () => void; onCancel?: () => void }) {
-  const [p, setP] = useState(initial);
-  const [busy, setBusy] = useState(false);
-  const set = (patch: Partial<EditablePackage>) => setP((x) => ({ ...x, ...patch }));
-  const setF = (patch: Partial<EditablePackage["features"]>) => setP((x) => ({ ...x, features: { ...x.features, ...patch } }));
-
-  const save = async () => {
-    setBusy(true);
-    try {
-      const body = { slug: p.slug, name: p.name, description: p.description, price: Number(p.price), currency: "thb", features: p.features, sortOrder: Number(p.sortOrder), isActive: p.isActive };
-      if (p.id) await apiFetch(`/api/admin/packages/${p.id}`, { method: "PATCH", json: body });
-      else await apiFetch(`/api/admin/packages`, { method: "POST", json: body });
-      toast.success("บันทึกแพ็กเกจแล้ว");
-      onSaved();
-    } catch (e) {
-      toast.error((e as Error).message);
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <Card className="space-y-4 p-5">
-      <div className="grid gap-3 sm:grid-cols-2">
-        <div className="space-y-1.5">
-          <Label>ชื่อแพ็กเกจ</Label>
-          <Input value={p.name} onChange={(e) => set({ name: e.target.value })} />
-        </div>
-        <div className="space-y-1.5">
-          <Label>Slug</Label>
-          <Input value={p.slug} onChange={(e) => set({ slug: e.target.value.toLowerCase() })} placeholder="premium" />
-        </div>
-        <div className="space-y-1.5">
-          <Label>ราคา (THB) – 0 = ฟรี, ขั้นต่ำ 10</Label>
-          <Input type="number" min={0} step="1" value={p.price} onChange={(e) => set({ price: Number(e.target.value) })} />
-        </div>
-        <div className="space-y-1.5">
-          <Label>ลำดับการแสดง</Label>
-          <Input type="number" min={0} value={p.sortOrder} onChange={(e) => set({ sortOrder: Number(e.target.value) })} />
-        </div>
-      </div>
-      <div className="space-y-1.5">
-        <Label>คำอธิบาย</Label>
-        <Textarea rows={2} value={p.description} onChange={(e) => set({ description: e.target.value })} />
-      </div>
-      <div className="space-y-2">
-        <Label>แบบโคมที่ใช้ได้</Label>
-        <div className="flex flex-wrap gap-2">
-          {LANTERN_DESIGN_IDS.map((d) => {
-            const on = p.features.designs.includes(d);
-            return (
-              <button
-                key={d}
-                type="button"
-                aria-pressed={on}
-                onClick={() => setF({ designs: on ? p.features.designs.filter((x) => x !== d) : [...p.features.designs, d] })}
-                className={`rounded-full border px-3 py-1 text-xs ${on ? "border-gold bg-gold/15 text-warm" : "border-white/10 text-warm/50"}`}
-              >
-                {LANTERN_DESIGNS[d].nameTh}
-              </button>
-            );
-          })}
-        </div>
-      </div>
-      <div className="flex flex-wrap items-center gap-5 text-sm">
-        <label className="flex items-center gap-2">
-          <Switch checked={p.features.allowImage} onCheckedChange={(v) => setF({ allowImage: v })} /> ใส่รูปได้
-        </label>
-        <label className="flex items-center gap-2">
-          <Switch checked={p.features.allowDrawing} onCheckedChange={(v) => setF({ allowDrawing: v })} /> วาดภาพได้
-        </label>
-        <label className="flex items-center gap-2">
-          ของตกแต่ง
-          <select
-            value={p.features.decoration ?? ""}
-            onChange={(e) => setF({ decoration: (e.target.value || null) as EditablePackage["features"]["decoration"] })}
-            className="rounded-lg border border-white/10 bg-night px-2 py-1 text-warm"
-          >
-            <option value="">ไม่มี</option>
-            {DECORATIONS.map((d) => (
-              <option key={d} value={d}>
-                {d}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="flex items-center gap-2">
-          <Switch checked={p.isActive} onCheckedChange={(v) => set({ isActive: v })} /> เปิดขาย
-        </label>
-      </div>
-      <div className="space-y-1.5">
-        <Label>จุดเด่น (บรรทัดละ 1 ข้อ)</Label>
-        <Textarea
-          rows={3}
-          value={p.features.highlights.join("\n")}
-          onChange={(e) => setF({ highlights: e.target.value.split("\n").map((s) => s.trim()).filter(Boolean).slice(0, 8) })}
-        />
-      </div>
-      <div className="flex justify-end gap-2">
-        {onCancel && (
-          <Button variant="ghost" onClick={onCancel}>
-            ยกเลิก
-          </Button>
-        )}
-        <Button onClick={save} disabled={busy}>
-          {busy ? <Loader2 className="animate-spin" /> : <Save />} บันทึก
-        </Button>
-      </div>
-    </Card>
-  );
-}
-
-export function PackagesAdmin() {
-  const { data, error, reload } = useAdminList<{ packages: FestivalPackage[] }>("/api/admin/packages");
-  const [editing, setEditing] = useState<string | null>(null);
-  const [creating, setCreating] = useState(false);
-
-  return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <p className="text-sm text-warm/55">ราคาทั้งหมดดึงจากฐานข้อมูล แก้ไขที่นี่มีผลทันทีกับการชำระเงินครั้งถัดไป</p>
-        <Button size="sm" onClick={() => setCreating(true)}>
-          <Plus /> เพิ่มแพ็กเกจ
-        </Button>
-      </div>
-      {error && <Card className="text-red-200">{error}</Card>}
-      {creating && (
-        <PackageEditor
-          initial={emptyPackage()}
-          onCancel={() => setCreating(false)}
-          onSaved={() => {
-            setCreating(false);
-            reload();
-          }}
-        />
-      )}
-      {!data && !error && <Skeleton className="h-40" />}
-      {data?.packages.map((p) =>
-        editing === p.id ? (
-          <PackageEditor
-            key={p.id}
-            initial={p}
-            onCancel={() => setEditing(null)}
-            onSaved={() => {
-              setEditing(null);
-              reload();
-            }}
-          />
-        ) : (
-          <Card key={p.id} className="flex flex-wrap items-center gap-4 p-4">
-            <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-2">
-                <p className="font-display text-lg text-warm">{p.name}</p>
-                <Badge variant={p.isActive ? "success" : "muted"}>{p.isActive ? "เปิดขาย" : "ปิด"}</Badge>
-              </div>
-              <p className="text-sm text-warm/55">{p.description}</p>
-              <p className="mt-1 text-xs text-warm/40">
-                slug: {p.slug} · แบบโคม {p.features.designs.length} แบบ · {p.features.decoration ?? "ไม่มีของตกแต่ง"}
-              </p>
-            </div>
-            <p className="font-display text-2xl text-gold">{p.price > 0 ? formatTHB(p.price) : "ฟรี"}</p>
-            <Button size="sm" variant="outline" onClick={() => setEditing(p.id)}>
-              แก้ไข
-            </Button>
-          </Card>
-        ),
-      )}
-    </div>
-  );
-}
-
 // ------------------------------------------------------------------ payments
 
 interface AdminPayment {
   id: string;
+  user_id: string;
+  lantern_id: string | null;
   package_name: string;
   stripe_session_id: string | null;
   stripe_payment_intent_id: string | null;

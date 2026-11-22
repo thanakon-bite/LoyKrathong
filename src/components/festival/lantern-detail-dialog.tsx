@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Clock, Flag, Loader2 } from "lucide-react";
+import { CalendarDays, Clock, Flag, Heart, Loader2, Maximize2, Share2, Sparkles, X } from "lucide-react";
 import { toast } from "sonner";
 import type { PublicLantern } from "@/types/lantern";
 import { apiFetch } from "@/lib/api-client";
@@ -12,6 +12,10 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
+import { formatRemaining } from "@/lib/lantern/motion";
+import { EFFECT_META } from "@/lib/lantern/effects-meta";
+import type { ClipMusic } from "@/lib/share/clip-music";
+import { SharedClipMusic } from "@/components/share/shared-clip-music";
 
 const REASONS = [
   { id: "inappropriate", label: "เนื้อหาไม่เหมาะสม" },
@@ -29,10 +33,7 @@ function useCountdown(expiresAt: string | undefined, serverOffset: number) {
   }, []);
   if (!expiresAt) return null;
   const ms = Date.parse(expiresAt) - (now + serverOffset);
-  if (ms <= 0) return "กำลังจางหาย";
-  const m = Math.floor(ms / 60000);
-  const s = Math.floor((ms % 60000) / 1000);
-  return `${m}:${String(s).padStart(2, "0")} นาที`;
+  return { label: formatRemaining(ms), live: ms > 0 };
 }
 
 interface Props {
@@ -40,22 +41,28 @@ interface Props {
   serverOffset: number;
   onClose: () => void;
   onGone: (id: string) => void;
+  onShare?: (id: string) => void;
+  /** owner's river: data comes from /api/me/lanterns – don't re-check the public endpoint */
+  ownerView?: boolean;
+  /** music attached to a shared link (shown prominently to the friend who opened it) */
+  music?: ClipMusic | null;
 }
 
-export function LanternDetailDialog({ lantern, serverOffset, onClose, onGone }: Props) {
+export function LanternDetailDialog({ lantern, serverOffset, onClose, onGone, onShare, ownerView, music }: Props) {
   const { user, ensureSession } = useAuth();
   const [fresh, setFresh] = useState<PublicLantern | null>(null);
   const [reporting, setReporting] = useState(false);
   const [reason, setReason] = useState<(typeof REASONS)[number]["id"]>("inappropriate");
   const [details, setDetails] = useState("");
   const [sending, setSending] = useState(false);
+  const [zoom, setZoom] = useState<{ src: string; alt: string; paper: boolean } | null>(null);
   const data = fresh?.id === lantern?.id ? fresh : lantern;
   const remaining = useCountdown(data?.expiresAt, serverOffset);
   const isMine = !!user && data?.ownerId === user.id;
 
   // re-validate with the server (expired lanterns cannot be opened) and refresh signed URLs
   useEffect(() => {
-    if (!lantern) return;
+    if (!lantern || ownerView) return;
     let active = true;
     apiFetch<{ lantern: PublicLantern }>(`/api/lanterns/${lantern.id}`)
       .then((r) => active && setFresh(r.lantern))
@@ -69,8 +76,9 @@ export function LanternDetailDialog({ lantern, serverOffset, onClose, onGone }: 
     return () => {
       active = false;
       setReporting(false);
+      setZoom(null);
     };
-  }, [lantern, onGone]);
+  }, [lantern, onGone, ownerView]);
 
   const sendReport = async () => {
     if (!data) return;
@@ -88,97 +96,167 @@ export function LanternDetailDialog({ lantern, serverOffset, onClose, onGone }: 
     }
   };
 
+  const released = data ? new Date(data.releasedAt).toLocaleString("th-TH", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }) : "";
+  const gallery = data
+    ? [
+        data.drawingSrc && { src: data.drawingSrc, alt: `ภาพวาดของ ${data.displayName}`, label: "ภาพวาด", paper: true },
+        data.imageSrc && { src: data.imageSrc, alt: `รูปภาพจาก ${data.displayName}`, label: "รูปภาพ", paper: false },
+      ].filter(Boolean) as Array<{ src: string; alt: string; label: string; paper: boolean }>
+    : [];
+
   return (
     <Dialog open={!!lantern} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="max-w-3xl p-0 sm:p-0">
+      <DialogContent className="max-h-[94dvh] max-w-4xl gap-0 overflow-hidden p-0 sm:p-0">
         {data && (
-          <div className="grid md:grid-cols-[1fr_1.1fr]">
-            <div className="relative h-72 overflow-hidden rounded-t-3xl md:h-auto md:min-h-[460px] md:rounded-l-3xl md:rounded-tr-none">
+          <div className="grid max-h-[94dvh] grid-cols-[minmax(0,1fr)] grid-rows-[auto_minmax(0,1fr)] md:h-[min(640px,86dvh)] md:grid-cols-[minmax(0,1fr)_minmax(0,1.05fr)] md:grid-rows-1">
+            {/* ---------- lantern ---------- */}
+            <div className="relative h-[34dvh] min-h-56 overflow-hidden bg-night md:h-full">
               <LanternPreview visual={data} label={`โคมของ ${data.displayName}`} />
+              <div className="pointer-events-none absolute inset-x-0 bottom-0 h-24 bg-gradient-to-t from-[#0b1122] to-transparent md:hidden" />
+              {data.effects.length > 0 && (
+                <div className="pointer-events-none absolute inset-x-3 bottom-3 flex flex-wrap justify-center gap-1.5">
+                  {data.effects.map((e) => (
+                    <span key={e} className="glass rounded-full px-2.5 py-1 text-[11px] text-warm/85">
+                      {EFFECT_META[e].emoji} {EFFECT_META[e].nameTh}
+                    </span>
+                  ))}
+                </div>
+              )}
             </div>
-            <div className="space-y-5 p-5 sm:p-7">
-              <DialogHeader>
-                <div className="flex flex-wrap items-center gap-2">
-                  {isMine && <Badge>โคมของคุณ</Badge>}
-                  {remaining && (
-                    <Badge variant="muted">
-                      <Clock className="size-3" /> ลอยอีก {remaining}
-                    </Badge>
-                  )}
-                </div>
-                <DialogTitle className="pt-1 text-2xl">{data.displayName}</DialogTitle>
-                <DialogDescription>ปล่อยโคมเมื่อ {new Date(data.releasedAt).toLocaleTimeString("th-TH", { hour: "2-digit", minute: "2-digit" })} น.</DialogDescription>
-              </DialogHeader>
 
-              {data.wishMessage && (
-                <section>
-                  <h3 className="mb-1 text-xs tracking-widest text-gold">คำอธิษฐาน</h3>
-                  <p className="whitespace-pre-line font-hand text-lg leading-relaxed text-warm">{data.wishMessage}</p>
-                </section>
-              )}
-              {data.blessingMessage && (
-                <section>
-                  <h3 className="mb-1 text-xs tracking-widest text-gold">คำอวยพร</h3>
-                  <p className="whitespace-pre-line text-warm/85">{data.blessingMessage}</p>
-                </section>
-              )}
-              {data.extraMessage && <p className="text-sm text-warm/60">{data.extraMessage}</p>}
+            {/* ---------- details ---------- */}
+            <div className="flex min-h-0 flex-col md:border-l md:border-white/5">
+              <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-5 pb-5 pt-4 sm:px-7 md:pt-7">
+                <DialogHeader className="gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
+                    {isMine && <Badge>โคมของคุณ</Badge>}
+                    {remaining?.live ? (
+                      <Badge variant="muted">
+                        <Clock className="size-3" /> ลอยอีก {remaining.label}
+                      </Badge>
+                    ) : (
+                      ownerView && <Badge variant="muted">ลอยอยู่ในสายน้ำของคุณ</Badge>
+                    )}
+                  </div>
+                  <DialogTitle className="font-display text-3xl leading-tight text-warm sm:text-4xl">{data.displayName}</DialogTitle>
+                  <DialogDescription className="flex items-center gap-1.5 text-sm text-warm/50">
+                    <CalendarDays className="size-4" /> ปล่อยโคมเมื่อ {released} น.
+                  </DialogDescription>
+                </DialogHeader>
 
-              {(data.drawingSrc || data.imageSrc) && (
-                <div className="grid grid-cols-2 gap-3">
-                  {data.drawingSrc && (
-                    <figure className="overflow-hidden rounded-2xl border border-white/10 bg-[#f6e7c6]">
-                      {/* eslint-disable-next-line @next/next/no-img-element -- short-lived signed URL */}
-                      <img src={data.drawingSrc} alt={`ภาพวาดของ ${data.displayName}`} loading="lazy" className="aspect-[512/563] w-full object-contain" />
-                      <figcaption className="bg-night/80 px-2 py-1 text-center text-xs text-warm/60">ภาพวาด</figcaption>
-                    </figure>
-                  )}
-                  {data.imageSrc && (
-                    <figure className="overflow-hidden rounded-2xl border border-white/10 bg-black/40">
-                      {/* eslint-disable-next-line @next/next/no-img-element -- short-lived signed URL */}
-                      <img src={data.imageSrc} alt={`รูปภาพจาก ${data.displayName}`} loading="lazy" className="aspect-square w-full object-cover" />
-                      <figcaption className="bg-night/80 px-2 py-1 text-center text-xs text-warm/60">รูปภาพ</figcaption>
-                    </figure>
-                  )}
-                </div>
-              )}
-
-              {!isMine && (
-                <div className="border-t border-white/5 pt-4">
-                  {!reporting ? (
-                    <button type="button" onClick={() => setReporting(true)} className="flex items-center gap-1.5 text-xs text-warm/45 hover:text-red-300">
-                      <Flag className="size-3.5" /> รายงานโคมนี้
-                    </button>
-                  ) : (
-                    <div className="space-y-3">
-                      <p className="text-sm text-warm">รายงานเนื้อหาไม่เหมาะสม</p>
-                      <div className="flex flex-wrap gap-2">
-                        {REASONS.map((r) => (
-                          <button
-                            key={r.id}
-                            type="button"
-                            aria-pressed={reason === r.id}
-                            onClick={() => setReason(r.id)}
-                            className={cn("rounded-full border px-3 py-1 text-xs", reason === r.id ? "border-red-300 bg-red-500/15 text-red-100" : "border-white/10 text-warm/60")}
-                          >
-                            {r.label}
-                          </button>
-                        ))}
-                      </div>
-                      <Textarea rows={2} maxLength={300} value={details} onChange={(e) => setDetails(e.target.value)} placeholder="รายละเอียดเพิ่มเติม (ไม่บังคับ)" />
-                      <div className="flex justify-end gap-2">
-                        <Button size="sm" variant="ghost" onClick={() => setReporting(false)}>
-                          ยกเลิก
-                        </Button>
-                        <Button size="sm" variant="destructive" onClick={sendReport} disabled={sending}>
-                          {sending && <Loader2 className="animate-spin" />} ส่งรายงาน
-                        </Button>
-                      </div>
+                {data.offering > 0 && (
+                  <div className="flex items-center gap-3 rounded-2xl border border-gold/40 bg-gradient-to-r from-amber-300/20 via-gold/10 to-transparent p-3">
+                    <span className="grid size-10 shrink-0 place-items-center rounded-full bg-[radial-gradient(circle_at_35%_35%,#fff3c4,#f5b942_55%,#b9781c)] font-display text-lg text-[#7a4a0c] shadow-[0_0_20px_-2px_rgba(245,185,66,0.9)]">
+                      ฿
+                    </span>
+                    <div>
+                      <p className="text-xs text-warm/60">ใส่เงินลงกระทง</p>
+                      <p className="font-display text-2xl leading-none text-gold">฿{data.offering.toLocaleString("th-TH")}</p>
                     </div>
+                  </div>
+                )}
+
+                {music && <SharedClipMusic music={music} variant="inline" />}
+
+                {data.wishMessage && (
+                  <section className="relative rounded-2xl border border-gold/15 bg-gradient-to-br from-white/[0.06] to-white/[0.02] p-4 pl-5">
+                    <span className="absolute inset-y-4 left-0 w-1 rounded-full bg-gold/70" />
+                    <h3 className="mb-1.5 flex items-center gap-1.5 text-xs font-medium tracking-widest text-gold">
+                      <Sparkles className="size-3.5" /> คำอธิษฐาน
+                    </h3>
+                    <p className="whitespace-pre-line break-words font-hand text-xl leading-relaxed text-warm">{data.wishMessage}</p>
+                  </section>
+                )}
+                {data.blessingMessage && (
+                  <section className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+                    <h3 className="mb-1.5 flex items-center gap-1.5 text-xs font-medium tracking-widest text-amber/90">
+                      <Heart className="size-3.5" /> คำอวยพร
+                    </h3>
+                    <p className="whitespace-pre-line break-words text-warm/85">{data.blessingMessage}</p>
+                  </section>
+                )}
+                {data.extraMessage && <p className="whitespace-pre-line break-words text-sm text-warm/60">{data.extraMessage}</p>}
+
+                {gallery.length > 0 && (
+                  <section>
+                    <h3 className="mb-2 text-xs font-medium tracking-widest text-warm/50">บนกระดาษโคม</h3>
+                    <div className={cn("grid gap-3", gallery.length > 1 ? "grid-cols-2" : "grid-cols-1 sm:max-w-[60%]")}>
+                      {gallery.map((g) => (
+                        <button
+                          key={g.label}
+                          type="button"
+                          onClick={() => setZoom(g)}
+                          aria-label={`ขยาย${g.label}`}
+                          className={cn(
+                            "group relative aspect-square overflow-hidden rounded-2xl ring-1 ring-white/10 transition hover:ring-gold/50",
+                            g.paper ? "bg-[radial-gradient(ellipse_at_50%_40%,#fbf1d9,#efd9ab)]" : "bg-black/40",
+                          )}
+                        >
+                          {/* eslint-disable-next-line @next/next/no-img-element -- short-lived signed URL */}
+                          <img src={g.src} alt={g.alt} loading="lazy" className={cn("h-full w-full transition duration-300 group-hover:scale-[1.04]", g.paper ? "object-contain p-3" : "object-cover")} />
+                          <span className="absolute bottom-2 left-2 rounded-full bg-night/70 px-2.5 py-0.5 text-[11px] text-warm/85 backdrop-blur">{g.label}</span>
+                          <Maximize2 className="absolute right-2 top-2 size-4 text-warm/0 drop-shadow transition group-hover:text-warm/90" />
+                        </button>
+                      ))}
+                    </div>
+                  </section>
+                )}
+
+                {!isMine && reporting && (
+                  <div className="space-y-3 rounded-2xl border border-red-400/20 bg-red-500/5 p-4">
+                    <p className="text-sm text-warm">รายงานเนื้อหาไม่เหมาะสม</p>
+                    <div className="flex flex-wrap gap-2">
+                      {REASONS.map((r) => (
+                        <button
+                          key={r.id}
+                          type="button"
+                          aria-pressed={reason === r.id}
+                          onClick={() => setReason(r.id)}
+                          className={cn("rounded-full border px-3 py-1 text-xs", reason === r.id ? "border-red-300 bg-red-500/15 text-red-100" : "border-white/10 text-warm/60")}
+                        >
+                          {r.label}
+                        </button>
+                      ))}
+                    </div>
+                    <Textarea rows={2} maxLength={300} value={details} onChange={(e) => setDetails(e.target.value)} placeholder="รายละเอียดเพิ่มเติม (ไม่บังคับ)" />
+                    <div className="flex justify-end gap-2">
+                      <Button size="sm" variant="ghost" onClick={() => setReporting(false)}>
+                        ยกเลิก
+                      </Button>
+                      <Button size="sm" variant="destructive" onClick={sendReport} disabled={sending}>
+                        {sending && <Loader2 className="animate-spin" />} ส่งรายงาน
+                      </Button>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* ---------- actions ---------- */}
+              {(onShare || !isMine) && (
+                <div className="flex items-center gap-3 border-t border-white/5 bg-[#0b1122]/90 px-5 py-3 sm:px-7">
+                  {onShare && (
+                    <Button className="flex-1 sm:flex-none" variant={isMine ? "default" : "outline"} onClick={() => onShare(data.id)}>
+                      <Share2 /> {isMine ? "แชร์โคมของฉัน" : "แชร์โคมดวงนี้"}
+                    </Button>
+                  )}
+                  {!isMine && !reporting && (
+                    <button type="button" onClick={() => setReporting(true)} className="ml-auto flex items-center gap-1.5 text-xs text-warm/40 hover:text-red-300">
+                      <Flag className="size-3.5" /> รายงาน
+                    </button>
                   )}
                 </div>
               )}
             </div>
+
+            {zoom && (
+              <div className="absolute inset-0 z-10 grid place-items-center bg-black/90 p-4" onClick={() => setZoom(null)} role="presentation">
+                {/* eslint-disable-next-line @next/next/no-img-element -- short-lived signed URL */}
+                <img src={zoom.src} alt={zoom.alt} className={cn("max-h-full max-w-full rounded-2xl object-contain", zoom.paper && "bg-[#f6e7c6] p-4")} />
+                <button type="button" aria-label="ปิดภาพ" onClick={() => setZoom(null)} className="absolute right-4 top-4 rounded-full bg-white/10 p-2 text-warm hover:bg-white/20">
+                  <X className="size-5" />
+                </button>
+              </div>
+            )}
           </div>
         )}
       </DialogContent>
