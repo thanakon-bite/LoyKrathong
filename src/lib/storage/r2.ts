@@ -43,6 +43,24 @@ function need(): R2Config {
 
 const objectUrl = (base: string, key: string) => `${base}/${key.split("/").map(encodeURIComponent).join("/")}`;
 
+/**
+ * Signs with aws4fetch but sends with a plain fetch(url, init). Passing aws4fetch's Request object to
+ * Next.js' patched server fetch re-wraps the body as a stream (chunked, no Content-Length) and R2 answers
+ * 411 MissingContentLength – a Uint8Array body keeps its length.
+ */
+async function send(method: string, key: string, init: { body?: Uint8Array; headers?: Record<string, string> } = {}) {
+  const { client, base } = need();
+  const signed = await client.sign(objectUrl(base, key), { method, headers: init.headers });
+  const headers = new Headers(signed.headers);
+  let last: Response | null = null;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    last = await fetch(signed.url, { method, headers, body: init.body as BodyInit | undefined, cache: "no-store" });
+    if (last.status < 500 && last.status !== 429) return last;
+    await new Promise((r) => setTimeout(r, 100 * 2 ** attempt));
+  }
+  return last!;
+}
+
 /** Presigned PUT – the signature covers content-type and content-length, so R2 rejects any other file size/type */
 export async function presignPut(key: string, contentType: string, contentLength: number, expiresInSeconds = 600) {
   const { client, base } = need();
@@ -67,16 +85,14 @@ export async function presignGet(key: string, expiresInSeconds: number) {
 
 /** Object size in bytes, or null when it does not exist */
 export async function headObject(key: string): Promise<number | null> {
-  const { client, base } = need();
-  const res = await client.fetch(objectUrl(base, key), { method: "HEAD" });
+  const res = await send("HEAD", key);
   if (res.status === 404) return null;
   if (!res.ok) throw new Error(`R2 HEAD ${res.status}`);
   return Number(res.headers.get("content-length") ?? 0);
 }
 
 export async function getObject(key: string, maxBytes: number): Promise<Uint8Array | null> {
-  const { client, base } = need();
-  const res = await client.fetch(objectUrl(base, key), { method: "GET" });
+  const res = await send("GET", key);
   if (res.status === 404) return null;
   if (!res.ok) throw new Error(`R2 GET ${res.status}`);
   if (Number(res.headers.get("content-length") ?? 0) > maxBytes) {
@@ -89,23 +105,17 @@ export async function getObject(key: string, maxBytes: number): Promise<Uint8Arr
 }
 
 export async function putObject(key: string, body: Uint8Array, contentType: string, cacheControl = "private, max-age=3600") {
-  const { client, base } = need();
-  const res = await client.fetch(objectUrl(base, key), {
-    method: "PUT",
-    body: body as BodyInit,
-    headers: { "content-type": contentType, "cache-control": cacheControl },
-  });
+  const res = await send("PUT", key, { body, headers: { "content-type": contentType, "cache-control": cacheControl } });
   if (!res.ok) throw new Error(`R2 PUT ${res.status}: ${(await res.text()).slice(0, 200)}`);
 }
 
 export async function deleteObjects(keys: string[]) {
-  const { client, base } = need();
   const failed: string[] = [];
   // small batches in parallel (S3 DeleteObjects needs Content-MD5; single deletes are simpler and idempotent)
   for (let i = 0; i < keys.length; i += 8) {
     await Promise.all(
       keys.slice(i, i + 8).map(async (key) => {
-        const res = await client.fetch(objectUrl(base, key), { method: "DELETE" });
+        const res = await send("DELETE", key);
         if (!res.ok && res.status !== 404) failed.push(key);
       }),
     );
