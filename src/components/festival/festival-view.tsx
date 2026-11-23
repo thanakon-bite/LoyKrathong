@@ -36,6 +36,7 @@ export function FestivalView({ initialFocusId }: { initialFocusId?: string } = {
   const [ownerVisible, setOwnerVisible] = useState(true);
   const [navigated, setNavigated] = useState(false);
   const [resetSignal, setResetSignal] = useState(0);
+  const [splash, setSplash] = useState(false);
   const handledRelease = useRef<string | null>(null);
   const handledFocus = useRef<string | null>(null);
   const [pendingShare, setPendingShare] = useState<string | null>(null);
@@ -99,6 +100,7 @@ export function FestivalView({ initialFocusId }: { initialFocusId?: string } = {
           setFollow(false);
         }}
         resetSignal={resetSignal}
+        splashMode={splash}
       />
 
       {/* HUD */}
@@ -176,13 +178,31 @@ export function FestivalView({ initialFocusId }: { initialFocusId?: string } = {
         </div>
       )}
 
-      <div className="pointer-events-none absolute inset-x-0 bottom-[calc(1.5rem+var(--nf-badge))] flex justify-center px-4">
+      <div className="pointer-events-none absolute inset-x-0 bottom-[calc(1.5rem+var(--nf-badge))] flex items-center justify-center gap-3 px-4">
+        {/* hand: slap the water to nudge lanterns around (only on this screen) */}
+        <button
+          type="button"
+          onClick={() => setSplash((v) => !v)}
+          aria-pressed={splash}
+          aria-label={splash ? "เลิกตีผิวน้ำ" : "ตีผิวน้ำให้กระทงเคลื่อนที่"}
+          className={cn(
+            "pointer-events-auto grid size-12 place-items-center rounded-full border transition",
+            splash ? "border-gold bg-gold text-night shadow-[0_0_24px_-4px_rgba(245,185,66,0.9)]" : "glass border-white/15 text-warm",
+          )}
+        >
+          <Hand className="size-5" />
+        </button>
         <Button asChild size="lg" className="pointer-events-auto">
           <Link href="/create">
             <Plus /> สร้างโคมของคุณ
           </Link>
         </Button>
       </div>
+      {splash && (
+        <p className="pointer-events-none absolute inset-x-0 top-28 mx-auto w-fit rounded-full bg-night/60 px-3 py-1 text-xs text-warm/80 backdrop-blur">
+          แตะผิวน้ำเพื่อตีน้ำให้กระทงลอยไป · กดรูปมือเพื่อกลับไปดูโคม
+        </p>
+      )}
       {!navigated ? (
         <p className="pointer-events-none absolute bottom-[calc(5rem+var(--nf-badge))] left-1/2 flex -translate-x-1/2 items-center gap-1.5 whitespace-nowrap rounded-full bg-night/40 px-3 py-1 text-xs text-warm/60 backdrop-blur">
           <Hand className="size-3.5" /> ลากเพื่อเลื่อนดู · แตะโคมเพื่ออ่านและหมุนดู 360°

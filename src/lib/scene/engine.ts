@@ -37,7 +37,20 @@ interface Entity extends EngineLantern {
   pausedAt: number | null;
   rect: ScreenRect | null;
   pose: LanternPose | null;
+  /** splash drift (world units) + velocity, local to this viewer */
+  push?: { x: number; z: number; vx: number; vz: number };
 }
+
+interface Ripple {
+  x: number;
+  z: number;
+  born: number;
+}
+
+/** splash tuning: how far a slap reaches, how hard it pushes, and how far a lantern may be pushed overall */
+const SPLASH_RADIUS = 3.2;
+const SPLASH_POWER = 2.6;
+const MAX_PUSH = 5;
 
 export type Quality = "high" | "low";
 
@@ -101,6 +114,10 @@ export class FestivalEngine {
   private orbitTarget = 0;
   private orbitVel = 0;
   private orbitR = 6;
+  /** hand mode: taps slap the water instead of opening lanterns */
+  private splashMode = false;
+  private ripples: Ripple[] = [];
+  private lastSplash = { x: 0, z: 0, t: -1e9 };
   private dpr = 1;
   private raf = 0;
   private last = 0;
@@ -207,6 +224,111 @@ export class FestivalEngine {
     this.follow = on;
     if (!on) this.followEngaged = false;
     else this.manual = false; // following takes the camera back
+  }
+
+  /** Hand mode: tapping slaps the water and pushes nearby lanterns (purely visual, for this viewer only) */
+  setSplashMode(on: boolean) {
+    this.splashMode = on;
+    this.canvas.style.cursor = on ? "pointer" : "grab";
+  }
+
+  /** screen point → water-plane world point (inverse of projectPoint; null above the horizon) */
+  private unproject(sx: number, sy: number): { x: number; z: number } | null {
+    const v = this.view;
+    const scale = (sy - v.horizon) / v.height;
+    if (scale <= 0.02) return null;
+    return { x: this.cam.x + (sx - v.w / 2) / scale, z: this.cam.z + v.focal / scale };
+  }
+
+  private splashAt(clientX: number, clientY: number) {
+    const r = this.canvas.getBoundingClientRect();
+    const w = this.unproject(clientX - r.left, clientY - r.top);
+    if (!w) return;
+    const t = this.time;
+    // slapping the same spot over and over fades out (no flinging lanterns into orbit), and a short cooldown
+    const same = Math.hypot(w.x - this.lastSplash.x, w.z - this.lastSplash.z) < 0.9 && t - this.lastSplash.t < 1.2;
+    if (t - this.lastSplash.t < 0.12) return;
+    const power = SPLASH_POWER * (same ? 0.35 : 1);
+    this.lastSplash = { x: w.x, z: w.z, t };
+    this.ripples.push({ x: w.x, z: w.z, born: t });
+    if (this.ripples.length > 12) this.ripples.shift();
+    for (const e of this.drawOrder) {
+      if (!e.pose) continue;
+      const dx = e.pose.x - w.x;
+      const dz = e.pose.z - w.z;
+      const d = Math.hypot(dx, dz);
+      if (d > SPLASH_RADIUS) continue;
+      const k = power * (1 - d / SPLASH_RADIUS) ** 1.5;
+      const nx = d > 0.05 ? dx / d : Math.cos(t * 7);
+      const nz = d > 0.05 ? dz / d : Math.sin(t * 7);
+      const p = (e.push ??= { x: 0, z: 0, vx: 0, vz: 0 });
+      p.vx += nx * k;
+      p.vz += nz * k;
+    }
+  }
+
+  /** integrate splash drift: damped motion, capped distance, and lanterns gently keep apart */
+  private stepPush(dt: number) {
+    const list = this.drawOrder;
+    for (const e of list) {
+      const p = e.push;
+      if (!p) continue;
+      p.x += p.vx * dt;
+      p.z += p.vz * dt;
+      const damp = Math.exp(-dt * 1.6);
+      p.vx *= damp;
+      p.vz *= damp;
+      const m = Math.hypot(p.x, p.z);
+      if (m > MAX_PUSH) {
+        p.x *= MAX_PUSH / m;
+        p.z *= MAX_PUSH / m;
+      }
+    }
+    // pushed lanterns must not end up on top of each other
+    for (let i = 0; i < list.length; i++) {
+      const a = list[i];
+      if (!a.pose) continue;
+      for (let j = i + 1; j < list.length; j++) {
+        const b = list[j];
+        if (!b.pose || (!a.push && !b.push)) continue;
+        const dx = b.pose.x - a.pose.x;
+        const dz = b.pose.z - a.pose.z;
+        const d = Math.hypot(dx, dz);
+        const min = LANTERN_WORLD_SIZE * 1.9;
+        if (d >= min || d === 0) continue;
+        const f = ((min - d) / min) * 0.5;
+        const pa = (a.push ??= { x: 0, z: 0, vx: 0, vz: 0 });
+        const pb = (b.push ??= { x: 0, z: 0, vx: 0, vz: 0 });
+        pa.vx -= (dx / d) * f;
+        pa.vz -= (dz / d) * f;
+        pb.vx += (dx / d) * f;
+        pb.vz += (dz / d) * f;
+      }
+    }
+  }
+
+  private drawRipples(ctx: CanvasRenderingContext2D) {
+    if (!this.ripples.length) return;
+    const t = this.time;
+    this.ripples = this.ripples.filter((r) => t - r.born < 1.6);
+    ctx.save();
+    for (const r of this.ripples) {
+      const p = this.project(r.x, r.z);
+      if (!p) continue;
+      const age = (t - r.born) / 1.6;
+      for (let k = 0; k < 3; k++) {
+        const a = age - k * 0.12;
+        if (a <= 0) continue;
+        const rad = (0.25 + a * SPLASH_RADIUS * 0.8) * p.scale;
+        ctx.globalAlpha = Math.max(0, (1 - a) * 0.55);
+        ctx.strokeStyle = "#cfe3ff";
+        ctx.lineWidth = Math.max(1, 2.2 * (1 - a));
+        ctx.beginPath();
+        ctx.ellipse(p.sx, p.sy, rad, rad * 0.32, 0, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+    }
+    ctx.restore();
   }
 
   /** Return to the default view */
@@ -476,6 +598,10 @@ export class FestivalEngine {
     for (const e of this.entities.values()) {
       if (e.vis <= 0) continue;
       e.pose = lanternPose(e.id, this.ageOf(e, now));
+      if (e.push) {
+        e.pose.x += e.push.x;
+        e.pose.z += e.push.z;
+      }
       list.push(e);
     }
     // strict cap: selected lanterns first, then the strongest fading ones
@@ -486,6 +612,7 @@ export class FestivalEngine {
     list.sort((a, b) => b.pose!.z - a.pose!.z);
     this.drawOrder = list;
 
+    this.stepPush(dt);
     this.updateCamera(dt, now);
     this.render(now);
   };
@@ -623,6 +750,7 @@ export class FestivalEngine {
       });
     }
 
+    this.drawRipples(ctx);
     this.particles.draw(ctx, v.w, v.h, this.time);
 
     if (this.vignette) ctx.drawImage(this.vignette, 0, 0, v.w, v.h);
@@ -642,11 +770,11 @@ export class FestivalEngine {
       void document.fonts.load('400 13px "Sriracha"', "กขค").catch(() => undefined);
     }
     const fontsReady = typeof document === "undefined" || !document.fonts || document.fonts.check('13px "Sriracha"', "ก");
-    const max = this.quality === "high" ? 8 : 5;
+    const max = this.quality === "high" ? 30 : 18;
     const candidates = projected
       .filter(({ e, size }) => {
         const wish = e.visual?.wishMessage;
-        return wish && e.doodleSeed == null && e.ownerId !== this.userId && e.rect && size >= 22 && e.vis > 0.6 && (e.pose?.alpha ?? 0) > 0.5 && e.id !== this.focusId;
+        return wish && e.doodleSeed == null && e.rect && size >= 14 && e.vis > 0.5 && (e.pose?.alpha ?? 0) > 0.4 && e.id !== this.focusId;
       })
       .sort((a, b) => b.size - a.size)
       .slice(0, max * 2);
@@ -666,13 +794,14 @@ export class FestivalEngine {
       }
       const sp = entry.sprite;
       if (!sp) continue;
-      const scale = Math.max(0.8, Math.min(1.1, size / 90));
+      // every lantern on screen shows its wish: far ones smaller, crowded ones stacked upwards
+      const scale = Math.max(0.55, Math.min(1.1, size / 90));
       const w = sp.w * scale;
       const h = sp.h * scale;
       const x = Math.max(4, Math.min(this.view.w - w - 4, sx - w / 2));
-      const y = e.rect!.y - h - 6 - rise * scale;
-      if (y < 56) continue; // stay clear of the HUD
-      if (placed.some((r) => x < r.x + r.w && x + w > r.x && y < r.y + r.h && y + h > r.y)) continue;
+      let y = Math.max(56, e.rect!.y - h - 6 - rise * scale);
+      const hits = (yy: number) => placed.some((r) => x < r.x + r.w && x + w > r.x && yy < r.y + r.h && yy + h > r.y);
+      for (let tries = 0; tries < 4 && hits(y) && y - h - 4 >= 56; tries++) y -= h + 4;
       placed.push({ x, y, w, h });
       ctx.globalAlpha = alpha * (e.pose?.alpha ?? 1);
       ctx.drawImage(sp.canvas, x, y, w, h);
@@ -833,6 +962,10 @@ export class FestivalEngine {
     // a drag is not a click
     if (this.suppressClick) {
       this.suppressClick = false;
+      return;
+    }
+    if (this.splashMode) {
+      this.splashAt(ev.clientX, ev.clientY);
       return;
     }
     const id = this.hitTest(ev.clientX, ev.clientY);
