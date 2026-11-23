@@ -24,6 +24,24 @@ const EMOJI_FONT = '"Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji","Seg
 const stickerPx = (size: number) => Math.round(28 + size * 4);
 type Tool = "pen" | "eraser" | "sticker";
 
+/** colour emoji rendered on a roomy scratch canvas, then stamped as an image (never clipped) */
+const emojiCache = new Map<string, HTMLCanvasElement>();
+function emojiSprite(emoji: string, px: number): HTMLCanvasElement {
+  const key = `${emoji}|${px}`;
+  const hit = emojiCache.get(key);
+  if (hit) return hit;
+  const c = document.createElement("canvas");
+  c.width = c.height = Math.ceil(px * 1.6);
+  const g = c.getContext("2d")!;
+  g.font = `${px}px ${EMOJI_FONT}`;
+  g.textAlign = "center";
+  g.textBaseline = "middle";
+  g.fillText(emoji, c.width / 2, c.height / 2 + px * 0.06);
+  if (emojiCache.size > 60) emojiCache.clear();
+  emojiCache.set(key, c);
+  return c;
+}
+
 interface Props {
   /** The lantern as it is now (the drawing of `face` itself is ignored – it lives on the ink canvas) */
   visual: LanternVisual;
@@ -261,6 +279,12 @@ export function DrawingPad({ visual, face, value, onChange, active = true, heade
   };
 
   const onPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!full && typeof window !== "undefined" && window.matchMedia("(max-width: 1023px)").matches) {
+      // phones: tapping the paper first opens the big full-screen pad – drawing starts with the next touch
+      e.preventDefault();
+      setFull(true);
+      return;
+    }
     if (e.pointerType === "mouse" && e.button !== 0) return;
     e.preventDefault();
     e.currentTarget.setPointerCapture(e.pointerId);
@@ -282,11 +306,8 @@ export function DrawingPad({ visual, face, value, onChange, active = true, heade
     if (tool === "sticker") {
       // stamp the emoji (a second finger takes it back like a stroke – see cancelStroke)
       g.globalCompositeOperation = "source-over";
-      g.font = `${stickerPx(size)}px ${EMOJI_FONT}`;
-      g.textAlign = "center";
-      g.textBaseline = "middle";
-      g.fillStyle = "#000";
-      g.fillText(sticker, x, y);
+      const sprite = emojiSprite(sticker, stickerPx(size));
+      g.drawImage(sprite, x - sprite.width / 2, y - sprite.height / 2);
       return;
     }
     // dot for a single tap

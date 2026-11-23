@@ -95,7 +95,8 @@
 }
 @media (max-width: 767px) {
   :root {
-    --nf-badge: 64px;
+    /* hosted on Cloudflare now – no third-party badge to keep clear of */
+    --nf-badge: 0px;
   }
   /* dialogs stay above the badge too */
   .dialog-content {

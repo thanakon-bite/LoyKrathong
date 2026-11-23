@@ -18,7 +18,6 @@ import { EFFECT_META } from "@/lib/lantern/effects-meta";
 import type { Quote } from "@/types/catalog";
 import { EXTRA_FACE_IDS, facesForShape, type ExtraFaceId, type PublicLantern } from "@/types/lantern";
 import { LanternPreview } from "@/components/lantern/lantern-preview";
-import { OfferingPicker } from "@/components/studio/offering-picker";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -124,11 +123,6 @@ export function CheckoutView() {
   const q = priced.quote;
   const total = q?.total ?? 0;
   const offering = draft.offering ?? 0;
-  const o = catalog?.offering;
-  const setOffering = (v: number) => {
-    setError(null);
-    update({ offering: Math.max(0, Math.round(v * 100) / 100) });
-  };
 
   const submit = async () => {
     if (!q || priced.problem) return;
@@ -211,17 +205,6 @@ export function CheckoutView() {
       </div>
 
       <div className="space-y-5">
-        {/* ---- offering ---- */}
-        {o?.enabled !== false && (
-          <section className="rounded-3xl border border-gold/20 bg-gradient-to-b from-gold/10 to-transparent p-4 sm:p-5">
-            <h2 className="flex items-center gap-2 font-display text-lg text-warm sm:text-xl">
-              <Coins className="size-5 text-gold" /> ใส่เงินลงกระทง <span className="text-xs font-normal text-warm/50">(ไม่บังคับ)</span>
-            </h2>
-            <p className="mt-1 text-xs text-warm/55">ยอดเงินจะแสดงเด่นบนหัวโคมของคุณในเทศกาล</p>
-            <OfferingPicker settings={o} value={offering} onChange={setOffering} disabled={busy} className="mt-3" />
-          </section>
-        )}
-
         {/* ---- bill ---- */}
         <section className="rounded-3xl border border-white/10 bg-white/[0.03] p-4 sm:p-5">
           <h2 className="mb-3 font-display text-lg text-warm sm:text-xl">สรุปรายการ</h2>
@@ -265,7 +248,12 @@ export function CheckoutView() {
                   <span className="flex items-center gap-1.5">
                     <Coins className="size-4" /> ใส่เงินลงกระทง
                   </span>
-                  <span>{formatTHB(offering)}</span>
+                  <span className="flex items-center gap-2">
+                    {formatTHB(offering)}
+                    <Link href="/create" className="text-[11px] text-warm/50 underline">
+                      แก้ไข
+                    </Link>
+                  </span>
                 </li>
               )}
               {effects.length === 0 && (

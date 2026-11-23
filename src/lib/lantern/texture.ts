@@ -1646,12 +1646,22 @@ function artLayer(designId: LanternDesignId, face: ArtFace, w: number, h: number
   return c;
 }
 
-/** Blits the cached artwork onto a face canvas (the context is scaled by res = pw / w) */
-function drawPattern(ctx: CanvasRenderingContext2D, designId: LanternDesignId, face: ArtFace, w: number, h: number, pw: number, ph: number) {
+/** inner part of the artwork used on shaped krathongs (their silhouette replaces the square border) */
+const BARE_INSET = 0.14;
+
+/**
+ * Blits the cached artwork onto a face canvas (the context is scaled by res = pw / w).
+ * `bare`: heart / moon / rabbit – skip the square border band by stretching the artwork's inner area.
+ */
+function drawPattern(ctx: CanvasRenderingContext2D, designId: LanternDesignId, face: ArtFace, w: number, h: number, pw: number, ph: number, bare = false) {
   const layer = artLayer(designId, face, w, h, pw, ph);
   ctx.save();
   ctx.setTransform(1, 0, 0, 1, 0, 0);
-  ctx.drawImage(layer, 0, 0);
+  if (bare) {
+    const sx = layer.width * BARE_INSET;
+    const sy = layer.height * BARE_INSET;
+    ctx.drawImage(layer, sx, sy, layer.width - sx * 2, layer.height - sy * 2, 0, 0, pw, ph);
+  } else ctx.drawImage(layer, 0, 0);
   ctx.restore();
 }
 
@@ -1822,7 +1832,7 @@ const stamp = (c: HTMLCanvasElement) => {
 
 function paintFront(ctx: CanvasRenderingContext2D, visual: LanternVisual, assets: FaceAssets, w: number, h: number, pw: number, ph: number) {
   const tc = visual.textConfig;
-  drawPattern(ctx, visual.design, "front", w, h, pw, ph);
+  drawPattern(ctx, visual.design, "front", w, h, pw, ph, !!visual.shape && visual.shape !== "box");
   if (visual.effects?.includes("thai-frame")) drawThaiFrame(ctx, w, h);
 
   if (assets.image && visual.imageConfig) drawPhoto(ctx, assets.image, visual.imageConfig, w, h);
@@ -1916,7 +1926,7 @@ function paintSideText(ctx: CanvasRenderingContext2D, visual: LanternVisual, w: 
 
 function paintSide(ctx: CanvasRenderingContext2D, visual: LanternVisual, w: number, h: number, pw: number, ph: number) {
   ctx.textAlign = "left";
-  drawPattern(ctx, visual.design, "side", w, h, pw, ph);
+  drawPattern(ctx, visual.design, "side", w, h, pw, ph, !!visual.shape && visual.shape !== "box");
   if (visual.effects?.includes("thai-frame")) drawThaiFrame(ctx, w, h);
   paintSideText(ctx, visual, w, h);
 }
@@ -1936,7 +1946,7 @@ function paintArtFace(
   pw: number,
   ph: number,
 ) {
-  drawPattern(ctx, visual.design, withText ? "side" : "front", w, h, pw, ph);
+  drawPattern(ctx, visual.design, withText ? "side" : "front", w, h, pw, ph, !!visual.shape && visual.shape !== "box");
   if (visual.effects?.includes("thai-frame")) drawThaiFrame(ctx, w, h);
   if (withText) paintSideText(ctx, visual, w, h);
   if (assets.image && art.imageConfig) drawPhoto(ctx, assets.image, art.imageConfig, w, h);
