@@ -52,7 +52,7 @@ export function PolaroidPhoto({ src, alt, caption, className, rotate = 0, size =
       <span aria-hidden className={cn("absolute left-1/2 top-0 -translate-x-1/2 -translate-y-1/2 -rotate-3 bg-[repeating-linear-gradient(90deg,rgba(255,179,199,0.85)_0_10px,rgba(255,214,225,0.85)_10px_16px)]", lg ? "h-7 w-28" : "h-3 w-12")} />
       <div className="overflow-hidden bg-black/80 ring-1 ring-black/10">
         {/* eslint-disable-next-line @next/next/no-img-element -- short-lived signed / blob URL */}
-        <img src={src} alt={alt} draggable={false} className={cn("block object-cover", lg ? "max-h-[58dvh] w-[min(78vw,420px)]" : "aspect-square w-full")} />
+        <img src={src} alt={alt} draggable={false} crossOrigin="anonymous" className={cn("block object-cover", lg ? "max-h-[58dvh] w-[min(78vw,420px)]" : "aspect-square w-full")} />
       </div>
       {caption && (
         <figcaption className={cn("absolute inset-x-0 truncate px-4 text-center font-hand text-[#3b2a1c]", lg ? "bottom-4 text-2xl sm:bottom-6" : "bottom-1 text-[11px]")}>{caption}</figcaption>
