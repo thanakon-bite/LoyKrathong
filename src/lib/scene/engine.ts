@@ -599,7 +599,13 @@ export class FestivalEngine {
    * "What did they wish for?" – speech bubbles float up above other people's lanterns, a few at a time
    * (the nearest ones), taking turns so the river never gets cluttered.
    */
+  private bubbleFontRequested = false;
+
   private drawWishBubbles(ctx: CanvasRenderingContext2D, projected: Array<{ e: Entity; sx: number; size: number }>) {
+    if (!this.bubbleFontRequested && typeof document !== "undefined" && document.fonts) {
+      this.bubbleFontRequested = true;
+      void document.fonts.load('400 13px "Sriracha"', "กขค").catch(() => undefined);
+    }
     const fontsReady = typeof document === "undefined" || !document.fonts || document.fonts.check('13px "Sriracha"', "ก");
     const max = this.quality === "high" ? 6 : 4;
     const candidates = projected

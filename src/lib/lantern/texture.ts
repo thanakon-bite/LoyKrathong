@@ -1771,7 +1771,17 @@ export function buildFaceTextures(
     ctx.globalAlpha = 0.85;
     ctx.textAlign = "right";
     const nameY = tc.position === "bottom" ? h * 0.07 : h * 0.88;
-    ctx.fillText(`— ${visual.displayName}`, w * 0.88, nameY);
+    const label = `— ${visual.displayName}`;
+    // a long name must not run past the left edge of the paper: squeeze it into 76% of the width
+    const maxW = w * 0.76;
+    const lw = ctx.measureText(label).width;
+    if (lw > maxW) {
+      ctx.save();
+      ctx.translate(w * 0.88, nameY);
+      ctx.scale(maxW / lw, 1);
+      ctx.fillText(label, 0, 0);
+      ctx.restore();
+    } else ctx.fillText(label, w * 0.88, nameY);
     ctx.globalAlpha = 1;
     ctx.textAlign = "center";
   }

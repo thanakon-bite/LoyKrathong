@@ -150,7 +150,9 @@ export function useFestivalLanterns() {
 
     if (supabase) {
       channel = supabase
-        .channel("festival")
+        // private: only the database (realtime.send … private => true) can broadcast here – a public channel
+        // could be joined and spoofed by anyone with the publishable key
+        .channel("festival", { config: { private: true } })
         .on("broadcast", { event: "lantern:new" }, ({ payload }) => {
           if (payload?.id) queueFetch(String(payload.id));
         })

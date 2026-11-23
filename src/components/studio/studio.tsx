@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
-import { Brush, Eye, Hand, ImageIcon, Palette, Sparkles, Type } from "lucide-react";
+import { Brush, Eye, Hand, ImageIcon, Palette, Sparkles, Type, RotateCcw } from "lucide-react";
 import { toast } from "sonner";
 import { draftHasContent, draftToVisual, useLanternDraft } from "@/hooks/use-lantern-draft";
 import { LANTERN_DESIGNS } from "@/lib/lantern/designs";
@@ -80,7 +80,7 @@ export function Studio() {
         </motion.div>
         <div className="mt-4 hidden gap-3 lg:flex">
           <Button size="lg" className="flex-1" onClick={() => validate() && setPreview(true)}>
-            <Eye /> Preview Lantern{subtotal > 0 && <span className="opacity-80">· ฿{subtotal.toLocaleString("th-TH")}</span>}
+            <Eye /> ดูตัวอย่างโคม{subtotal > 0 && <span className="opacity-80">· ฿{subtotal.toLocaleString("th-TH")}</span>}
           </Button>
           <Button size="lg" variant="ghost" onClick={() => (confirm("ล้างโคมที่ออกแบบไว้ทั้งหมด?") ? reset() : undefined)}>
             เริ่มใหม่
@@ -93,19 +93,19 @@ export function Studio() {
       <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-4 backdrop-blur-xl has-[[data-draw-full]]:backdrop-blur-none sm:p-6">
         <Tabs value={tab} onValueChange={setTab}>
           <TabsList>
-            <TabsTrigger value="design">
+            <TabsTrigger value="design" aria-label="แบบโคม">
               <Palette /> <span className="hidden sm:inline">แบบโคม</span>
             </TabsTrigger>
-            <TabsTrigger value="text">
+            <TabsTrigger value="text" aria-label="ข้อความ">
               <Type /> <span className="hidden sm:inline">ข้อความ</span>
             </TabsTrigger>
-            <TabsTrigger value="draw">
+            <TabsTrigger value="draw" aria-label="วาดภาพ">
               <Brush /> <span className="hidden sm:inline">วาดภาพ</span>
             </TabsTrigger>
-            <TabsTrigger value="image">
+            <TabsTrigger value="image" aria-label="รูปภาพ">
               <ImageIcon /> <span className="hidden sm:inline">รูปภาพ</span>
             </TabsTrigger>
-            <TabsTrigger value="effects">
+            <TabsTrigger value="effects" aria-label="เอฟเฟกต์">
               <Sparkles /> <span className="hidden sm:inline">เอฟเฟกต์</span>
             </TabsTrigger>
           </TabsList>
@@ -144,10 +144,15 @@ export function Studio() {
       </div>
 
       {/* mobile sticky action bar */}
-      <div className="fixed inset-x-0 bottom-0 z-30 border-t border-white/10 bg-night/85 p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] backdrop-blur-xl lg:hidden">
-        <Button size="lg" className="w-full" onClick={() => validate() && setPreview(true)}>
-          <Eye /> Preview Lantern{subtotal > 0 && <span className="opacity-80">· ฿{subtotal.toLocaleString("th-TH")}</span>}
-        </Button>
+      <div className="fixed inset-x-0 bottom-0 z-30 border-t border-white/10 bg-night/85 p-3 pb-[calc(max(0.75rem,env(safe-area-inset-bottom))+var(--nf-badge))] backdrop-blur-xl lg:hidden">
+        <div className="flex gap-2">
+          <Button size="lg" variant="ghost" className="shrink-0 px-3" aria-label="เริ่มออกแบบใหม่" onClick={() => (confirm("ล้างโคมที่ออกแบบไว้ทั้งหมด?") ? reset() : undefined)}>
+            <RotateCcw />
+          </Button>
+          <Button size="lg" className="flex-1" onClick={() => validate() && setPreview(true)}>
+            <Eye /> ดูตัวอย่างโคม{subtotal > 0 && <span className="opacity-80">· ฿{subtotal.toLocaleString("th-TH")}</span>}
+          </Button>
+        </div>
       </div>
 
       <PreviewDialog

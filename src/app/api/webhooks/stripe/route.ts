@@ -3,7 +3,7 @@ import type Stripe from "stripe";
 import { serverEnv } from "@/lib/env";
 import { getStripe } from "@/lib/stripe/server";
 import { handleStripeEvent } from "@/services/payment-service";
-import { log, logError } from "@/services/logger";
+import { logError } from "@/services/logger";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -20,7 +20,8 @@ export async function POST(req: Request) {
     const raw = await req.text();
     event = getStripe().webhooks.constructEvent(raw, signature, serverEnv("STRIPE_WEBHOOK_SECRET"));
   } catch (err) {
-    await log("warn", "stripe-webhook", "signature verification failed", { error: String(err) });
+    // console only: anyone can POST here, so this must not write a database row per request
+    console.warn("[stripe-webhook] signature verification failed:", String(err).slice(0, 200));
     return NextResponse.json({ error: "invalid signature" }, { status: 400 });
   }
 

@@ -339,7 +339,7 @@ export function SharedLanternScene({ lantern, music }: Props) {
       )}
 
       {/* hint + actions */}
-      <div className="pointer-events-none absolute inset-x-0 bottom-[max(1.25rem,env(safe-area-inset-bottom))] flex flex-col items-center gap-3 px-4">
+      <div className="pointer-events-none absolute inset-x-0 bottom-[calc(max(1.25rem,env(safe-area-inset-bottom))+var(--nf-badge))] flex flex-col items-center gap-3 px-4">
         {items.length > 0 && (
           <p className="flex items-center gap-1.5 rounded-full bg-night/50 px-3 py-1 text-center text-xs text-warm/70 backdrop-blur">
             <Hand className="size-3.5 shrink-0" /> แตะรูป สติกเกอร์ หรือข้อความบนกระทงเพื่อดูใกล้ ๆ · ลากเพื่อหมุน
@@ -374,7 +374,7 @@ export function SharedLanternScene({ lantern, music }: Props) {
             animate={{ opacity: 1 }}
             exit={{ opacity: 0, transition: { duration: 0.6 } }}
             onClick={startIntro}
-            className="absolute inset-0 z-40 grid place-items-center bg-[#03050d]/75 px-6 backdrop-blur-sm"
+            className="fixed inset-0 z-[45] grid place-items-center bg-[#03050d]/75 px-6 backdrop-blur-sm"
           >
             <motion.span
               initial={{ y: 20, scale: 0.95 }}

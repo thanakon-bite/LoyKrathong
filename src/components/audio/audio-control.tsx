@@ -14,7 +14,7 @@ export function AudioControl({ className }: { className?: string }) {
   const [open, setOpen] = useState(false);
   const pathname = usePathname();
   // keep clear of the bottom action bars on mobile
-  const lift = pathname === "/create" ? "bottom-24 lg:bottom-6" : pathname === "/festival" || pathname.startsWith("/l/") ? "bottom-24 md:bottom-6" : "bottom-4 sm:bottom-6";
+  const lift = pathname === "/create" ? "md:bottom-24 lg:bottom-6" : "md:bottom-6";
   const audible = playing && enabled;
   const Icon = !audible ? VolumeX : volume < 0.4 ? Volume1 : Volume2;
   // a shared song is playing (or about to) – show only that song's controls
@@ -22,7 +22,13 @@ export function AudioControl({ className }: { className?: string }) {
 
   return (
     // bottom-LEFT: Netlify's free plan injects a "Powered by Netlify" badge at bottom-right that cannot be turned off
-    <div data-audio-control className={cn("fixed left-4 z-40 flex flex-row-reverse items-center gap-2 sm:left-6", lift, className)}>
+    <div data-audio-control className={cn(
+        // phones: top-right under the header (the bottom holds the main buttons + Netlify badge)
+        "fixed right-3 top-[calc(7.25rem+env(safe-area-inset-top))] z-40 flex flex-row-reverse items-center gap-2",
+        "md:left-6 md:right-auto md:top-auto",
+        lift,
+        className,
+      )}>
       <AnimatePresence>
         {open && (
           <motion.div
@@ -54,7 +60,7 @@ export function AudioControl({ className }: { className?: string }) {
         onClick={() => setOpen((o) => !o)}
         aria-label="ปรับระดับเสียง"
         aria-expanded={open}
-        className="glass grid size-11 place-items-center rounded-full text-xs text-warm/70 transition hover:border-gold/50"
+        className="glass hidden size-11 place-items-center rounded-full text-xs text-warm/70 transition hover:border-gold/50 md:grid"
       >
         {Math.round(volume * 100)}
       </button>

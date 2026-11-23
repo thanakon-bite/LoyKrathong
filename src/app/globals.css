@@ -86,3 +86,20 @@
     transition-duration: 0.01ms !important;
   }
 }
+
+
+/* Netlify's free plan injects a fixed "Powered by Netlify" badge (~64px, bottom-right). On phones it would
+   cover the main bottom buttons, so bottom UI is lifted by --nf-badge. */
+:root {
+  --nf-badge: 0px;
+}
+@media (max-width: 767px) {
+  :root {
+    --nf-badge: 64px;
+  }
+  /* dialogs stay above the badge too */
+  .dialog-content {
+    top: calc(50% - var(--nf-badge) / 2) !important;
+    max-height: calc(100dvh - 1.5rem - var(--nf-badge)) !important;
+  }
+}

@@ -176,7 +176,7 @@ export function FestivalView({ initialFocusId }: { initialFocusId?: string } = {
         </div>
       )}
 
-      <div className="pointer-events-none absolute inset-x-0 bottom-6 flex justify-center px-4">
+      <div className="pointer-events-none absolute inset-x-0 bottom-[calc(1.5rem+var(--nf-badge))] flex justify-center px-4">
         <Button asChild size="lg" className="pointer-events-auto">
           <Link href="/create">
             <Plus /> สร้างโคมของคุณ
@@ -184,7 +184,7 @@ export function FestivalView({ initialFocusId }: { initialFocusId?: string } = {
         </Button>
       </div>
       {!navigated ? (
-        <p className="pointer-events-none absolute bottom-20 left-1/2 flex -translate-x-1/2 items-center gap-1.5 whitespace-nowrap rounded-full bg-night/40 px-3 py-1 text-xs text-warm/60 backdrop-blur">
+        <p className="pointer-events-none absolute bottom-[calc(5rem+var(--nf-badge))] left-1/2 flex -translate-x-1/2 items-center gap-1.5 whitespace-nowrap rounded-full bg-night/40 px-3 py-1 text-xs text-warm/60 backdrop-blur">
           <Hand className="size-3.5" /> ลากเพื่อเลื่อนดู · แตะโคมเพื่ออ่าน
         </p>
       ) : (
@@ -194,7 +194,7 @@ export function FestivalView({ initialFocusId }: { initialFocusId?: string } = {
             setResetSignal((n) => n + 1);
             setNavigated(false);
           }}
-          className="glass absolute bottom-20 left-1/2 flex -translate-x-1/2 items-center gap-1.5 rounded-full px-3 py-1.5 text-xs text-warm/80"
+          className="glass absolute bottom-[calc(5rem+var(--nf-badge))] left-1/2 flex -translate-x-1/2 items-center gap-1.5 rounded-full px-3 py-1.5 text-xs text-warm/80"
         >
           <LocateFixed className="size-3.5 text-gold" /> กลับมุมมองเริ่มต้น
         </button>

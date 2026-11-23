@@ -11,7 +11,7 @@ export const metadata: Metadata = pageMetadata({
 
 export default function CreatePage() {
   return (
-    <PageShell className="max-w-7xl pb-32 lg:pb-24" footer={false}>
+    <PageShell className="max-w-7xl pb-[calc(9rem+var(--nf-badge))] lg:pb-24" footer={false}>
       <header className="mb-4 sm:mb-8">
         <p className="mb-2 hidden text-sm tracking-[0.2em] text-gold sm:block">LANTERN STUDIO</p>
         <h1 className="font-display text-2xl font-light text-warm sm:text-4xl">สร้างโคมอธิษฐาน</h1>

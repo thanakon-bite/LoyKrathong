@@ -78,7 +78,7 @@ export function ClipMusicPicker({ value, onChange }: Props) {
     const query = link.trim();
     const isSearch = !!query && !parseYouTubeId(query) && !linkError;
     return (
-      <div className="space-y-3">
+      <div className="min-w-0 space-y-3">
         <div className="rounded-2xl border border-dashed border-gold/35 bg-gradient-to-b from-gold/[0.08] to-transparent p-4">
           <div className="mb-3 flex items-center gap-3">
             <span className="grid size-10 shrink-0 place-items-center rounded-full bg-gold/15 text-gold">
@@ -129,7 +129,7 @@ export function ClipMusicPicker({ value, onChange }: Props) {
 
   /* ---------------- step 2: pick the 15 seconds ---------------- */
   return (
-    <div className="space-y-3">
+    <div className="min-w-0 space-y-3">
       {/* song */}
       <div className="flex items-center gap-3 rounded-2xl bg-white/[0.04] p-2 pr-3">
         {/* eslint-disable-next-line @next/next/no-img-element -- YouTube thumbnail */}

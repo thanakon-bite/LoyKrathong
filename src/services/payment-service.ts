@@ -9,6 +9,7 @@ import type { CheckoutStatus, PaymentRecord, PaymentStatus } from "@/types/payme
 import type { Quote, Selection } from "@/types/catalog";
 import { createPendingLantern, findLanternByRequest } from "./lantern-service";
 import { log } from "./logger";
+import { rateLimit } from "./rate-limit";
 
 /** Stripe Checkout sessions must live at least 30 minutes */
 const CHECKOUT_TTL_SECONDS = 30 * 60;
@@ -133,10 +134,7 @@ function paymentMethodOf(session: Stripe.Checkout.Session): string | null {
 async function fulfillSession(sessionId: string) {
   const stripe = getStripe();
   const session = await stripe.checkout.sessions.retrieve(sessionId, { expand: ["payment_intent.latest_charge"] });
-  if (session.payment_status !== "paid") {
-    await log("info", "stripe-webhook", "session not paid yet", { sessionId, payment_status: session.payment_status });
-    return;
-  }
+  if (session.payment_status !== "paid") return; // not paid yet (polled often – no log row)
   if ((session.currency ?? "").toLowerCase() !== "thb" || session.amount_total == null) {
     throw new Error(`unexpected currency/amount for session ${sessionId}`);
   }
@@ -219,6 +217,11 @@ async function readCheckoutStatus(userId: string, sessionId: string) {
 export async function getCheckoutStatus(userId: string, sessionId: string): Promise<CheckoutStatus> {
   const status = await readCheckoutStatus(userId, sessionId);
   if (status.paymentStatus !== "pending") return status;
+  try {
+    await rateLimit(`stripe-check:${sessionId}`, 1, 6);
+  } catch {
+    return status; // checked Stripe moments ago – the webhook usually lands first anyway
+  }
   try {
     await fulfillSession(sessionId);
   } catch (e) {

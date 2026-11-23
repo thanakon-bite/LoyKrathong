@@ -19,15 +19,18 @@ export async function runCleanup() {
   const nowIso = new Date().toISOString();
   const { data: rows, error } = await db
     .from("lanterns")
-    .select("id, image_url, drawing_data, status")
+    .select("id, image_url, drawing_data, status, moderation_note")
     .is("content_purged_at", null)
     .in("status", ["removed", "cancelled"])
     .limit(500);
   if (error) throw new Error(error.message);
+  // lanterns hidden automatically by user reports stay intact until a moderator reviews them
+  // (reports are cheap to make – a few fake ones must never wipe a paid lantern for good)
+  const purgeable = (rows ?? []).filter((r) => !(r.status === "removed" && String(r.moderation_note ?? "").startsWith("auto-hidden")));
 
   let purged = 0;
-  for (let i = 0; i < (rows ?? []).length; i += 100) {
-    const batch = rows!.slice(i, i + 100);
+  for (let i = 0; i < purgeable.length; i += 100) {
+    const batch = purgeable.slice(i, i + 100);
     const paths = batch.flatMap((r) => [r.image_url, (r.drawing_data as { path?: string } | null)?.path].filter(Boolean) as string[]);
     try {
       await removeAssets(paths);

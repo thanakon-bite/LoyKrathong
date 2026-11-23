@@ -216,7 +216,7 @@ export function DrawingPad({ visual, value, onChange, active = true }: Props) {
             role="radio"
             aria-checked={tool === "pen"}
             onClick={() => setTool("pen")}
-            className={cn("flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs", tool === "pen" ? "bg-gold text-night" : "text-warm/70")}
+            className={cn("flex h-9 items-center gap-1.5 rounded-full px-3 text-xs", tool === "pen" ? "bg-gold text-night" : "text-warm/70")}
           >
             <Brush className="size-4" /> ปากกา
           </button>
@@ -225,7 +225,7 @@ export function DrawingPad({ visual, value, onChange, active = true }: Props) {
             role="radio"
             aria-checked={tool === "eraser"}
             onClick={() => setTool("eraser")}
-            className={cn("flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs", tool === "eraser" ? "bg-gold text-night" : "text-warm/70")}
+            className={cn("flex h-9 items-center gap-1.5 rounded-full px-3 text-xs", tool === "eraser" ? "bg-gold text-night" : "text-warm/70")}
           >
             <Eraser className="size-4" /> ยางลบ
           </button>
@@ -254,11 +254,11 @@ export function DrawingPad({ visual, value, onChange, active = true }: Props) {
               setColor(c);
               setTool("pen");
             }}
-            className={cn("size-7 rounded-full border-2 transition", color === c && tool === "pen" ? "scale-110 border-gold" : "border-white/20")}
+            className={cn("size-9 rounded-full border-2 transition", color === c && tool === "pen" ? "scale-110 border-gold" : "border-white/20")}
             style={{ background: c }}
           />
         ))}
-        <label className="relative grid size-7 cursor-pointer place-items-center rounded-full border-2 border-dashed border-white/30 text-xs text-warm/60">
+        <label className="relative grid size-9 cursor-pointer place-items-center rounded-full border-2 border-dashed border-white/30 text-xs text-warm/60">
           +
           <input
             type="color"

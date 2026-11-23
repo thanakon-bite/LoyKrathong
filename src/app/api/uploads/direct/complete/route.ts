@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { ApiError, assertSameOrigin, handleError, noStore, readJson, requireUser } from "@/lib/api";
 import { finishDirectUpload, signedUrl } from "@/services/storage-service";
+import { rateLimit } from "@/services/rate-limit";
 
 export const runtime = "nodejs";
 // re-encoding a 50 MB photo takes a few seconds
@@ -13,6 +14,7 @@ export async function POST(req: Request) {
   try {
     assertSameOrigin(req);
     const user = await requireUser();
+    await rateLimit(`upload-complete:${user.id}`, 20, 600, "อัปโหลดถี่เกินไป กรุณารอสักครู่");
     const parsed = schema.safeParse(await readJson(req));
     if (!parsed.success) throw new ApiError(400, "invalid_upload", "ข้อมูลการอัปโหลดไม่ถูกต้อง");
     const { path } = await finishDirectUpload(user.id, parsed.data.key);
