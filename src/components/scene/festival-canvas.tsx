@@ -18,13 +18,11 @@ interface Props {
   resetSignal?: number;
   /** owner's river: lanterns never expire */
   keepAlive?: boolean;
-  /** hand mode: taps slap the water and push nearby lanterns */
-  splashMode?: boolean;
   className?: string;
 }
 
 /** Full-screen festival scene (Canvas 2D, requestAnimationFrame) */
-export function FestivalCanvas({ lanterns, serverOffset, userId, follow, focusId, onLanternClick, onOwnerVisibility, onUserNavigate, resetSignal = 0, keepAlive = false, splashMode = false, className }: Props) {
+export function FestivalCanvas({ lanterns, serverOffset, userId, follow, focusId, onLanternClick, onOwnerVisibility, onUserNavigate, resetSignal = 0, keepAlive = false, className }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const engineRef = useRef<FestivalEngine | null>(null);
   const clickRef = useRef(onLanternClick);
@@ -78,10 +76,6 @@ export function FestivalCanvas({ lanterns, serverOffset, userId, follow, focusId
   useEffect(() => {
     engineRef.current?.replaceAll(lanterns.map(toEngineLantern));
   }, [lanterns]);
-
-  useEffect(() => {
-    engineRef.current?.setSplashMode(splashMode);
-  }, [splashMode]);
 
   useEffect(() => {
     if (resetSignal) engineRef.current?.resetView();

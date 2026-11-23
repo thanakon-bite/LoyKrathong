@@ -114,8 +114,6 @@ export class FestivalEngine {
   private orbitTarget = 0;
   private orbitVel = 0;
   private orbitR = 6;
-  /** hand mode: taps slap the water instead of opening lanterns */
-  private splashMode = false;
   private ripples: Ripple[] = [];
   private lastSplash = { x: 0, z: 0, t: -1e9 };
   private dpr = 1;
@@ -224,12 +222,6 @@ export class FestivalEngine {
     this.follow = on;
     if (!on) this.followEngaged = false;
     else this.manual = false; // following takes the camera back
-  }
-
-  /** Hand mode: tapping slaps the water and pushes nearby lanterns (purely visual, for this viewer only) */
-  setSplashMode(on: boolean) {
-    this.splashMode = on;
-    this.canvas.style.cursor = on ? "pointer" : "grab";
   }
 
   /** screen point → water-plane world point (inverse of projectPoint; null above the horizon) */
@@ -964,12 +956,10 @@ export class FestivalEngine {
       this.suppressClick = false;
       return;
     }
-    if (this.splashMode) {
-      this.splashAt(ev.clientX, ev.clientY);
-      return;
-    }
+    // tap a lantern → open its card; tap the water → slap it and nudge nearby lanterns (this viewer only)
     const id = this.hitTest(ev.clientX, ev.clientY);
     if (id) this.opts.onLanternClick?.(id);
+    else this.splashAt(ev.clientX, ev.clientY);
   };
 }
 

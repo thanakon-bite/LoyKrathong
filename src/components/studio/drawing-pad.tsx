@@ -16,13 +16,40 @@ const MAX_ZOOM = 6;
 /** emoji stickers – festival ones first */
 const STICKERS = [
   "🪷", "🏮", "✨", "🌕", "🎆", "💛", "❤️", "🙏", "🌸", "⭐", "🐇", "🎉",
-  "🌟", "🎇", "🕯️", "🌙", "💖", "💐", "🍀", "🦋", "🐟", "🌈",
+  "🌟", "🎇", "🪔", "🌙", "💖", "💐", "🍀", "🦋", "🐟", "🌈",
   "😊", "😍", "🥰", "😘", "😂", "🤗", "😇", "🥳", "😎", "🤩", "😺", "👍", "👏", "💪",
 ];
 const EMOJI_FONT = '"Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji","Segoe UI Symbol",sans-serif';
 /** sticker size in texture px from the brush slider (2…28) */
 const stickerPx = (size: number) => Math.round(28 + size * 4);
 type Tool = "pen" | "eraser" | "sticker";
+
+/** glossy red heart (vector stand-in for the ❤️ emoji), centred on (cx, cy), about `px` wide */
+function drawHeart(g: CanvasRenderingContext2D, cx: number, cy: number, px: number) {
+  const s = px / 2;
+  const top = cy - s * 0.55;
+  const path = new Path2D();
+  path.moveTo(cx, cy + s * 0.85);
+  path.bezierCurveTo(cx - s * 0.35, cy + s * 0.55, cx - s, cy + s * 0.15, cx - s, top + s * 0.35);
+  path.bezierCurveTo(cx - s, top - s * 0.15, cx - s * 0.45, top - s * 0.4, cx, top + s * 0.15);
+  path.bezierCurveTo(cx + s * 0.45, top - s * 0.4, cx + s, top - s * 0.15, cx + s, top + s * 0.35);
+  path.bezierCurveTo(cx + s, cy + s * 0.15, cx + s * 0.35, cy + s * 0.55, cx, cy + s * 0.85);
+  path.closePath();
+  const grad = g.createLinearGradient(cx, top - s * 0.3, cx, cy + s * 0.85);
+  grad.addColorStop(0, "#ff5a5f");
+  grad.addColorStop(1, "#d3122a");
+  g.fillStyle = grad;
+  g.fill(path);
+  // soft highlight on the left lobe
+  g.save();
+  g.clip(path);
+  g.globalAlpha = 0.35;
+  g.fillStyle = "#fff";
+  g.beginPath();
+  g.ellipse(cx - s * 0.5, top + s * 0.18, s * 0.22, s * 0.13, -0.6, 0, Math.PI * 2);
+  g.fill();
+  g.restore();
+}
 
 /** colour emoji rendered on a roomy scratch canvas, then stamped as an image (never clipped) */
 const emojiCache = new Map<string, HTMLCanvasElement>();
@@ -33,6 +60,13 @@ function emojiSprite(emoji: string, px: number): HTMLCanvasElement {
   const c = document.createElement("canvas");
   c.width = c.height = Math.ceil(px * 1.6);
   const g = c.getContext("2d")!;
+  if (emoji === "❤️") {
+    // ❤ (U+2764) is a "text-default" character: Android / some browsers clip the colour glyph to the narrow
+    // text advance (half a heart). Draw it as a vector instead – identical on every device.
+    drawHeart(g, c.width / 2, c.height / 2, px);
+    emojiCache.set(key, c);
+    return c;
+  }
   g.font = `${px}px ${EMOJI_FONT}`;
   g.textAlign = "center";
   g.textBaseline = "middle";
