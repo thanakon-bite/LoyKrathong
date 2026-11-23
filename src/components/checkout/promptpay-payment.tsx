@@ -6,7 +6,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { AlertCircle, CheckCircle2, Clock, Download, ImageUp, Loader2, ShieldCheck, Smartphone, XCircle } from "lucide-react";
 import { toast } from "sonner";
 import { apiFetch, ClientApiError } from "@/lib/api-client";
-import { BANK_APPS, detectPlatform, openBankApp, type MobilePlatform } from "@/lib/bank-apps";
+import { BANK_APPS, bankStoreUrl, detectPlatform, openBankApp, type MobilePlatform } from "@/lib/bank-apps";
 import { prepareSlipFile, scanSlip } from "@/lib/slip-client";
 import { cn, formatTHB } from "@/lib/utils";
 import { useLanternDraft } from "@/hooks/use-lantern-draft";
@@ -53,8 +53,9 @@ export function PromptPayPayment() {
   const platform = usePlatform();
   const [order, setOrder] = useState<PromptPayOrder | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [bankSheet, setBankSheet] = useState(false);
+  const [tried, setTried] = useState<string | null>(null);
   const [phase, setPhase] = useState<Phase>({ kind: "idle" });
-  const [showBanks, setShowBanks] = useState(false);
   const [preview, setPreview] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const now = useNow(!!order && order.paymentStatus !== "paid");
@@ -117,7 +118,13 @@ export function PromptPayPayment() {
   const onSave = async () => {
     if (!qr) return;
     const r = await saveQrImage(qr.card, `promptpay-${order.amount}-thb.png`);
-    if (r === "downloaded") toast.success("บันทึก QR แล้ว เปิดแอปธนาคาร แล้วเลือกสแกนจากรูปภาพ");
+    if (r === "downloaded") toast.success("บันทึก QR แล้ว เลือกแอปธนาคารเพื่อสแกนจากรูปภาพ");
+    // next step right away: pick the bank app
+    if (platform !== "desktop") setBankSheet(true);
+  };
+  const launch = (b: (typeof BANK_APPS)[number]) => {
+    setTried(b.id);
+    openBankApp(b, platform);
   };
 
   const onFile = async (file: File | undefined) => {
@@ -213,33 +220,52 @@ export function PromptPayPayment() {
             <Smartphone className="size-4 shrink-0" /> สแกน QR ด้วยแอปธนาคารบนมือถือ
           </p>
         ) : (
-          <Button variant="outline" disabled={expired} aria-expanded={showBanks} onClick={() => setShowBanks((v) => !v)}>
+          <Button variant="outline" disabled={expired} aria-expanded={bankSheet} onClick={() => setBankSheet(true)}>
             <Smartphone /> เปิดแอปธนาคาร
           </Button>
         )}
       </div>
       {platform !== "desktop" && <p className="text-center text-[11px] text-warm/55">บันทึก QR → เปิดแอปธนาคาร → สแกน → เลือกรูปจากอัลบั้ม → กลับมาแนบสลิป</p>}
-      {showBanks && platform !== "desktop" && (
-        <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-3">
-          <div className="grid grid-cols-4 gap-2">
-            {BANK_APPS.map((b) => (
-              <button
-                key={b.id}
-                type="button"
-                onClick={() => openBankApp(b, platform)}
-                aria-label={`เปิดแอป ${b.name}`}
-                className="flex flex-col items-center gap-1 rounded-xl p-1.5 text-center text-[10px] leading-tight text-warm/80 hover:bg-white/5"
+      {/* bank chooser – pops up after saving the QR (and from the button) */}
+      {bankSheet && platform !== "desktop" && (
+        <div className="fixed inset-0 z-[70] flex items-end bg-black/60 backdrop-blur-sm" onClick={() => setBankSheet(false)} role="presentation">
+          <div
+            role="dialog"
+            aria-label="เลือกแอปธนาคาร"
+            className="w-full rounded-t-3xl border-t border-gold/20 bg-[#0b1122] p-4 pb-[max(1.25rem,env(safe-area-inset-bottom))]"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <p className="mb-1 text-center font-display text-lg text-warm">เปิดแอปธนาคาร</p>
+            <p className="mb-3 text-center text-xs text-warm/55">ในแอป กด “สแกน” แล้วเลือก QR จากรูปภาพในเครื่อง</p>
+            <div className="grid grid-cols-4 gap-2">
+              {BANK_APPS.map((b) => (
+                <button
+                  key={b.id}
+                  type="button"
+                  onClick={() => launch(b)}
+                  aria-label={`เปิดแอป ${b.name}`}
+                  className="flex flex-col items-center gap-1 rounded-xl p-1.5 text-center text-[10px] leading-tight text-warm/80 hover:bg-white/5"
+                >
+                  <span className="flex size-11 items-center justify-center rounded-2xl text-xs font-bold text-white shadow-lg" style={{ background: b.color }}>
+                    {b.name.slice(0, 2).toUpperCase()}
+                  </span>
+                  <span>{b.name}</span>
+                </button>
+              ))}
+            </div>
+            {tried && platform === "ios" && (
+              <a
+                href={bankStoreUrl(BANK_APPS.find((x) => x.id === tried)!, "ios")}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="mt-3 block text-center text-xs text-gold underline"
               >
-                <span className="flex size-9 items-center justify-center rounded-xl text-[11px] font-bold text-white" style={{ background: b.color }}>
-                  {b.name.slice(0, 2).toUpperCase()}
-                </span>
-                <span>
-                  เปิดแอป
-                  <br />
-                  {b.name}
-                </span>
-              </button>
-            ))}
+                แอปไม่เปิด? ดาวน์โหลด {BANK_APPS.find((x) => x.id === tried)!.name}
+              </a>
+            )}
+            <Button variant="ghost" className="mt-3 w-full" onClick={() => setBankSheet(false)}>
+              ปิด
+            </Button>
           </div>
         </div>
       )}

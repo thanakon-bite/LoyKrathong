@@ -282,26 +282,44 @@ function mapSlipOkError(httpStatus: number, json: SlipOkResponse | null): SlipPr
   }
 }
 
-async function verifyWithSlipOk(input: SlipInput, cfg: SlipConfig, fetchImpl: typeof fetch): Promise<ProviderResult> {
-  const url = `${SLIPOK_API_BASE}/${encodeURIComponent(cfg.branchId ?? "")}`;
+function slipOkRequest(input: SlipInput, cfg: SlipConfig, log: boolean): { headers: Record<string, string>; body: BodyInit } {
   const headers: Record<string, string> = { "x-authorization": cfg.apiKey };
-  let body: BodyInit;
   if (input.payload) {
     headers["Content-Type"] = "application/json";
     // log: true → SlipOK stores the slip, flags duplicates (1012) and checks the registered receiver (1014)
-    body = JSON.stringify({ data: input.payload, log: true });
-  } else if (input.image) {
+    return { headers, body: JSON.stringify({ data: input.payload, log }) };
+  }
+  if (input.image) {
     const { blob, name } = imageBlob(input.image);
     const form = new FormData();
     form.append("files", blob, name);
-    form.append("log", "true");
-    body = form;
-  } else {
-    throw providerError("invalid_image", "SLIPOK_1000");
+    form.append("log", String(log));
+    return { headers, body: form };
   }
+  throw providerError("invalid_image", "SLIPOK_1000");
+}
 
-  const res = await send(fetchImpl, url, { method: "POST", headers, body });
-  const json = (await res.json().catch(() => null)) as SlipOkResponse | null;
+async function verifyWithSlipOk(input: SlipInput, cfg: SlipConfig, fetchImpl: typeof fetch): Promise<ProviderResult> {
+  const url = `${SLIPOK_API_BASE}/${encodeURIComponent(cfg.branchId ?? "")}`;
+  const first = slipOkRequest(input, cfg, true);
+  const res = await send(fetchImpl, url, { method: "POST", ...first });
+  let json = (await res.json().catch(() => null)) as SlipOkResponse | null;
+
+  // 1014 = SlipOK's receiver check against the account registered in its LINE LIFF failed – which is always
+  // the case when no account is registered there. The money may still have reached OUR PromptPay, so use the
+  // slip data (returned with the error, or by asking once more without `log`) and let OUR receiver check decide.
+  if (Number(json?.code) === 1014) {
+    const fromError = normalizeSlipOk(json?.data, cfg, false);
+    if (fromError) return { ...fromError, slip: { ...fromError.slip, matchedAccount: null } };
+    const again = slipOkRequest(input, cfg, false);
+    const res2 = await send(fetchImpl, url, { method: "POST", ...again });
+    json = (await res2.json().catch(() => null)) as SlipOkResponse | null;
+    if (res2.ok && json?.success) {
+      const result = normalizeSlipOk(json.data, cfg, false);
+      if (result) return { ...result, slip: { ...result.slip, matchedAccount: null } };
+    }
+    throw mapSlipOkError(res2.status, json);
+  }
   if (res.ok && json?.success) {
     const result = normalizeSlipOk(json.data, cfg, false);
     if (!result) throw providerError("provider_unavailable", "MALFORMED_RESPONSE");

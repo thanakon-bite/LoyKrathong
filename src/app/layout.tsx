@@ -13,7 +13,6 @@ import "./globals.css";
 import { AuthProvider } from "@/components/providers/auth-provider";
 import { AudioProvider } from "@/components/providers/audio-provider";
 import { SiteHeader } from "@/components/layout/site-header";
-import { AudioControl } from "@/components/audio/audio-control";
 import { Toaster } from "@/components/ui/sonner";
 import { publicEnv } from "@/lib/env";
 import { SITE } from "@/lib/seo";
@@ -58,7 +57,6 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           <AudioProvider>
             <SiteHeader />
             <div id="main">{children}</div>
-            <AudioControl />
             <Toaster />
           </AudioProvider>
         </AuthProvider>

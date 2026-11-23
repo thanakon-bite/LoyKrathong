@@ -4,8 +4,7 @@
  *
  *  - Android: intent URL with the Play Store package (+ the app's scheme when known), with
  *    S.browser_fallback_url = Play Store listing.
- *  - iOS: the app's custom URL scheme; after ~1.5 s, if the page is still visible (nothing opened),
- *    the App Store listing. visibilitychange / pagehide / blur cancel the fallback.
+ *  - iOS: the app's custom URL scheme (a "download" link is shown separately – no automatic redirect).
  *
  * Store ids were checked against the live listings (App Store TH / Google Play, Nov 2026).
  * Schemes marked "2C2P" are from 2C2P's deeplink docs
@@ -52,9 +51,11 @@ export function androidIntentUrl(bank: BankApp): string {
   return `intent://#Intent;scheme=${bank.scheme};package=${bank.android};S.browser_fallback_url=${encodeURIComponent(bankStoreUrl(bank, "android"))};end`;
 }
 
-export const IOS_FALLBACK_MS = 1500;
-
-/** Opens the bank app; the store is only the fallback when nothing opened */
+/**
+ * Opens the bank app. Android: intent URL (installed app, Play Store only if it isn't installed).
+ * iOS: the app's URL scheme only – no automatic App Store redirect (Safari's "Open in …?" prompt keeps the page
+ * visible, so a timer would send people to the store right as they tap "Open"); the UI shows a download link.
+ */
 export function openBankApp(bank: BankApp, platform: MobilePlatform) {
   if (platform === "android") {
     window.location.href = androidIntentUrl(bank);
@@ -64,24 +65,6 @@ export function openBankApp(bank: BankApp, platform: MobilePlatform) {
     window.open(bankStoreUrl(bank, platform), "_blank", "noopener");
     return;
   }
-  let timer = 0;
-  const cancel = () => {
-    window.clearTimeout(timer);
-    document.removeEventListener("visibilitychange", onVisibility);
-    window.removeEventListener("pagehide", cancel);
-    window.removeEventListener("blur", cancel);
-  };
-  const onVisibility = () => {
-    if (document.visibilityState === "hidden") cancel();
-  };
-  document.addEventListener("visibilitychange", onVisibility);
-  window.addEventListener("pagehide", cancel);
-  window.addEventListener("blur", cancel);
-  timer = window.setTimeout(() => {
-    const stillHere = document.visibilityState === "visible";
-    cancel();
-    if (stillHere) window.location.href = bankStoreUrl(bank, "ios");
-  }, IOS_FALLBACK_MS);
   // eslint-disable-next-line @next/next/no-location-assign-relative-destination -- external app scheme, not a page
   window.location.href = `${bank.scheme}://`;
 }
