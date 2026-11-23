@@ -70,12 +70,19 @@ export function LanternPreview({ visual, className, ignite, rotate = true, yawOf
     let w = 0;
     let h = 0;
     const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
+    // setting canvas.width clears it – only resize on a real size change, and repaint right away
+    // (mobile browsers resize the viewport while scrolling as the address bar hides; that caused flicker)
+    let paintNow: ((now: number) => void) | null = null;
     const resize = () => {
       const r = canvas.getBoundingClientRect();
+      const cw = Math.round(r.width * dpr);
+      const ch = Math.round(r.height * dpr);
       w = r.width;
       h = r.height;
-      canvas.width = Math.round(w * dpr);
-      canvas.height = Math.round(h * dpr);
+      if (canvas.width === cw && canvas.height === ch) return;
+      canvas.width = cw;
+      canvas.height = ch;
+      paintNow?.(performance.now());
     };
     resize();
     const ro = new ResizeObserver(resize);
@@ -89,8 +96,7 @@ export function LanternPreview({ visual, className, ignite, rotate = true, yawOf
       onScreen = entry.isIntersecting;
     });
     io.observe(canvas);
-    const frame = (now: number) => {
-      raf = requestAnimationFrame(frame);
+    const paint = (now: number) => {
       if (!onScreen || document.hidden || w === 0) return;
       const v = visualRef.current;
       const t = stillRef.current ? 0 : (now - start) / 1000;
@@ -146,6 +152,11 @@ export function LanternPreview({ visual, className, ignite, rotate = true, yawOf
         time: t,
         seed,
       });
+    };
+    paintNow = paint;
+    const frame = (now: number) => {
+      raf = requestAnimationFrame(frame);
+      paint(now);
     };
     raf = requestAnimationFrame(frame);
     return () => {

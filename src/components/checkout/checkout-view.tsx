@@ -84,7 +84,7 @@ export function CheckoutView() {
     }
   }, [catalog, draft]);
 
-  if (!draft || !visual) return <Skeleton className="h-[70dvh] rounded-3xl" />;
+  if (!draft || !visual) return <Skeleton className="h-[70svh] rounded-3xl" />;
 
   if (!draft.displayName.trim() || !draftHasContent(draft)) {
     return (
@@ -161,7 +161,7 @@ export function CheckoutView() {
   return (
     <div className="grid gap-6 lg:grid-cols-[1fr_1.2fr] lg:gap-10">
       <div className="space-y-4 lg:sticky lg:top-24 lg:self-start">
-        <div className="relative h-[26dvh] min-h-48 overflow-hidden rounded-3xl border border-gold/15 sm:h-[38dvh] sm:min-h-64">
+        <div className="relative h-[26svh] min-h-48 overflow-hidden rounded-3xl border border-gold/15 sm:h-[38svh] sm:min-h-64">
           <LanternPreview visual={visual} label="โคมที่จะปล่อย" />
           <Link href="/create" className="absolute left-3 top-3 flex items-center gap-1 rounded-full bg-night/60 px-3 py-1 text-xs text-amber backdrop-blur lg:hidden">
             <ArrowLeft className="size-3.5" /> แก้ไข

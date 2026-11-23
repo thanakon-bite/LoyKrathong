@@ -51,6 +51,13 @@ export function ImagePanel({ visual, imageDataUrl, imageConfig, allowed, onImage
   const [busy, setBusy] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const drag = useRef<{ startX: number; startY: number; cfg: ImageConfig } | null>(null);
+  // two fingers on the lantern face = pinch to resize the photo
+  const touches = useRef(new Map<number, { x: number; y: number }>());
+  const pinch = useRef<{ dist: number; scale: number } | null>(null);
+  const spread = () => {
+    const [a, b] = [...touches.current.values()];
+    return a && b ? Math.hypot(a.x - b.x, a.y - b.y) : 0;
+  };
   const imgRef = useRef<HTMLImageElement | null>(null);
 
   // render the face with the image in place (drag to reposition)
@@ -117,6 +124,13 @@ export function ImagePanel({ visual, imageDataUrl, imageConfig, allowed, onImage
 
   const onPointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
     if (!imageDataUrl || !imgRef.current) return;
+    touches.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (touches.current.size >= 2) {
+      e.currentTarget.setPointerCapture(e.pointerId);
+      drag.current = null;
+      pinch.current = { dist: Math.max(1, spread()), scale: imageConfig.scale };
+      return;
+    }
     const r = e.currentTarget.getBoundingClientRect();
     const px = ((e.clientX - r.left) / r.width) * TEX_W;
     const py = ((e.clientY - r.top) / r.height) * TEX_H;
@@ -127,11 +141,22 @@ export function ImagePanel({ visual, imageDataUrl, imageConfig, allowed, onImage
   };
 
   const onPointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    if (touches.current.has(e.pointerId)) touches.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (pinch.current && touches.current.size >= 2) {
+      onConfig({ ...imageConfig, scale: clamp(pinch.current.scale * (spread() / pinch.current.dist), 0.2, 1) });
+      return;
+    }
     if (!drag.current) return;
     const r = e.currentTarget.getBoundingClientRect();
     const dx = (e.clientX - drag.current.startX) / r.width;
     const dy = (e.clientY - drag.current.startY) / r.height;
     onConfig({ ...drag.current.cfg, x: clamp(drag.current.cfg.x + dx, -0.5, 0.5), y: clamp(drag.current.cfg.y + dy, -0.5, 0.5) });
+  };
+
+  const endPointer = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    touches.current.delete(e.pointerId);
+    if (touches.current.size < 2) pinch.current = null;
+    drag.current = null;
   };
 
   if (!allowed) {
@@ -190,12 +215,12 @@ export function ImagePanel({ visual, imageDataUrl, imageConfig, allowed, onImage
               className="absolute inset-0 h-full w-full cursor-move touch-none"
               onPointerDown={onPointerDown}
               onPointerMove={onPointerMove}
-              onPointerUp={() => (drag.current = null)}
-              onPointerCancel={() => (drag.current = null)}
+              onPointerUp={endPointer}
+              onPointerCancel={endPointer}
             />
           </div>
           <p className="flex items-center justify-center gap-1.5 text-xs text-warm/50">
-            <Move className="size-3.5" /> ลากรูปบนโคมเพื่อปรับตำแหน่ง
+            <Move className="size-3.5" /> ลากรูปเพื่อย้าย · ถ่าง/หุบสองนิ้วบนโคมเพื่อย่อขยาย
           </p>
           <div className="space-y-3">
             <div className="space-y-1.5">

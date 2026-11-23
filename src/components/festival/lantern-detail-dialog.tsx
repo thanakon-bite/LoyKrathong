@@ -138,7 +138,7 @@ export function LanternDetailDialog({ lantern, serverOffset, onClose, onGone, on
         {data && (
           <div className="relative grid max-h-[94dvh] grid-cols-[minmax(0,1fr)] grid-rows-[auto_minmax(0,1fr)] md:h-[min(640px,86dvh)] md:grid-cols-[minmax(0,1fr)_minmax(0,1.05fr)] md:grid-rows-1">
             {/* ---------- lantern ---------- */}
-            <div className="relative h-[46dvh] min-h-64 overflow-hidden bg-[radial-gradient(ellipse_at_50%_30%,#1a1838,#070b18)] md:h-full">
+            <div className="relative h-[46svh] min-h-64 overflow-hidden bg-[radial-gradient(ellipse_at_50%_30%,#1a1838,#070b18)] md:h-full">
               {postcardUrl ? (
                 // eslint-disable-next-line @next/next/no-img-element -- local blob URL of the rendered postcard
                 <img src={postcardUrl} alt={`โปสการ์ดโคมของ ${data.displayName}`} className="absolute inset-0 h-full w-full object-contain p-2 md:p-4" />

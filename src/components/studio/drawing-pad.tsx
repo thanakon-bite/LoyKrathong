@@ -40,6 +40,16 @@ export function DrawingPad({ visual, value, onChange, active = true }: Props) {
   const hasInk = useRef(Boolean(value));
   /** full-screen drawing mode – on phones the canvas only takes touches here, so the page can still scroll */
   const [full, setFull] = useState(false);
+  // two-finger pinch: spread = open full screen, pinch together = close (a second finger also cancels the stroke)
+  const fingers = useRef(new Map<number, { x: number; y: number }>());
+  const pinchStart = useRef<number | null>(null);
+  const fingerSpread = () => {
+    const [a, b] = [...fingers.current.values()];
+    return a && b ? Math.hypot(a.x - b.x, a.y - b.y) : 0;
+  };
+  /** pinch out on the small (non full-screen) pad, from touch events because the canvas ignores touches there */
+  const outerPinch = useRef<number | null>(null);
+  const touchSpread = (t: React.TouchList) => (t.length >= 2 ? Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY) : 0);
   useEffect(() => {
     if (!full) return;
     const prev = document.body.style.overflow;
@@ -124,6 +134,18 @@ export function DrawingPad({ visual, value, onChange, active = true }: Props) {
   const onPointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
     e.preventDefault();
     e.currentTarget.setPointerCapture(e.pointerId);
+    fingers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (fingers.current.size >= 2) {
+      // second finger: this is a pinch, not a stroke – take back what the first finger just drew
+      if (drawing.current) {
+        drawing.current = false;
+        last.current = null;
+        const top = undoStack.current[undoStack.current.length - 1];
+        if (top) ctx().putImageData(top, 0, 0);
+      }
+      pinchStart.current = Math.max(1, fingerSpread());
+      return;
+    }
     drawing.current = true;
     const { x, y } = pos(e);
     last.current = { x, y, mx: x, my: y };
@@ -137,6 +159,18 @@ export function DrawingPad({ visual, value, onChange, active = true }: Props) {
   };
 
   const onPointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    if (fingers.current.has(e.pointerId)) fingers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (pinchStart.current !== null && fingers.current.size >= 2) {
+      const ratio = fingerSpread() / pinchStart.current;
+      if (full && ratio < 0.7) {
+        pinchStart.current = null;
+        setFull(false);
+      } else if (!full && ratio > 1.35) {
+        pinchStart.current = null;
+        setFull(true);
+      }
+      return;
+    }
     if (!drawing.current) return;
     const events = e.nativeEvent.getCoalescedEvents?.() ?? [e.nativeEvent];
     for (const ev of events.length ? events : [e.nativeEvent]) {
@@ -155,6 +189,12 @@ export function DrawingPad({ visual, value, onChange, active = true }: Props) {
     redoStack.current = [];
     syncHistory();
     emit();
+  };
+
+  const releaseFinger = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    fingers.current.delete(e.pointerId);
+    if (fingers.current.size < 2) pinchStart.current = null;
+    end();
   };
 
   const undo = () => {
@@ -203,7 +243,9 @@ export function DrawingPad({ visual, value, onChange, active = true }: Props) {
     >
       {full && (
         <div className="flex items-center justify-between">
-          <p className="text-sm font-medium text-warm">วาดบนโคม</p>
+          <p className="text-sm font-medium text-warm">
+            วาดบนโคม <span className="text-xs font-normal text-warm/50">· หุบสองนิ้วเพื่อออก</span>
+          </p>
           <Button type="button" size="sm" onClick={() => setFull(false)}>
             <Check /> เสร็จ
           </Button>
@@ -284,9 +326,22 @@ export function DrawingPad({ visual, value, onChange, active = true }: Props) {
       <div
         className={cn(
           "relative mx-auto w-full overflow-hidden rounded-xl border border-gold/30 shadow-[0_0_40px_-10px_rgba(245,185,66,0.6)]",
-          full ? "max-w-[min(100%,calc((100dvh-15rem)*0.909))]" : "max-w-sm",
+          full ? "max-w-[min(100%,calc((100dvh-15rem)*0.909))]" : "max-w-sm touch-pan-y",
         )}
         style={{ aspectRatio: `${TEX_W} / ${TEX_H}` }}
+        onTouchStart={(e) => {
+          if (!full && e.touches.length >= 2) outerPinch.current = Math.max(1, touchSpread(e.touches));
+        }}
+        onTouchMove={(e) => {
+          if (full || outerPinch.current === null || e.touches.length < 2) return;
+          if (touchSpread(e.touches) / outerPinch.current > 1.3) {
+            outerPinch.current = null;
+            setFull(true);
+          }
+        }}
+        onTouchEnd={(e) => {
+          if (e.touches.length < 2) outerPinch.current = null;
+        }}
       >
         <canvas ref={baseRef} width={TEX_W} height={TEX_H} className="absolute inset-0 h-full w-full" aria-hidden />
         <canvas
@@ -303,9 +358,9 @@ export function DrawingPad({ visual, value, onChange, active = true }: Props) {
           )}
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
-          onPointerUp={end}
-          onPointerCancel={end}
-          onPointerLeave={end}
+          onPointerUp={releaseFinger}
+          onPointerCancel={releaseFinger}
+          onPointerLeave={releaseFinger}
         />
         {!full && (
           <>
@@ -317,7 +372,7 @@ export function DrawingPad({ visual, value, onChange, active = true }: Props) {
               aria-label="แตะเพื่อเริ่มวาดแบบเต็มจอ"
             >
               <span className="flex items-center gap-1.5 rounded-full bg-gold px-4 py-2 text-sm font-medium text-night shadow-lg">
-                <Pencil className="size-4" /> แตะเพื่อวาด
+                <Pencil className="size-4" /> แตะหรือถ่างสองนิ้วเพื่อวาด
               </span>
             </button>
             <button

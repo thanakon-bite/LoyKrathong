@@ -42,8 +42,8 @@ export function Studio() {
   if (!draft || !visual || !visualNoDrawing) {
     return (
       <div className="grid gap-6 lg:grid-cols-[1.1fr_1fr]">
-        <Skeleton className="h-[50dvh] rounded-3xl" />
-        <Skeleton className="h-[60dvh] rounded-3xl" />
+        <Skeleton className="h-[50svh] rounded-3xl" />
+        <Skeleton className="h-[60svh] rounded-3xl" />
       </div>
     );
   }
@@ -68,7 +68,7 @@ export function Studio() {
         <motion.div
           initial={{ opacity: 0, scale: 0.98 }}
           animate={{ opacity: 1, scale: 1 }}
-          className="relative h-[34dvh] min-h-60 overflow-hidden sm:h-[42dvh] sm:min-h-72 rounded-3xl border border-gold/15 shadow-[0_0_80px_-30px_rgba(245,185,66,0.6)] lg:h-[62dvh]"
+          className="relative h-[34svh] min-h-60 overflow-hidden sm:h-[42svh] sm:min-h-72 rounded-3xl border border-gold/15 shadow-[0_0_80px_-30px_rgba(245,185,66,0.6)] lg:h-[62svh]"
         >
           <LanternPreview visual={visual} label="ตัวอย่างโคมแบบสด อัปเดตทันทีเมื่อแก้ไข" />
           <span className="pointer-events-none absolute bottom-3 left-1/2 flex -translate-x-1/2 items-center gap-1.5 rounded-full bg-night/55 px-3 py-1 text-xs text-warm/70 backdrop-blur">
