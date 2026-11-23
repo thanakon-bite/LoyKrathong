@@ -1,8 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { ClipMusic } from "@/lib/share/clip-music";
-import { SharedClipMusic } from "@/components/share/shared-clip-music";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
@@ -26,7 +24,7 @@ const CONNECTION_LABEL = {
   polling: "อัปเดตอัตโนมัติ",
 } as const;
 
-export function FestivalView({ initialFocusId, sharedMusic }: { initialFocusId?: string; sharedMusic?: ClipMusic | null } = {}) {
+export function FestivalView({ initialFocusId }: { initialFocusId?: string } = {}) {
   const params = useSearchParams();
   const router = useRouter();
   const releasedId = params.get("released");
@@ -77,7 +75,7 @@ export function FestivalView({ initialFocusId, sharedMusic }: { initialFocusId?:
       handledFocus.current = focusParam;
       // eslint-disable-next-line react-hooks/set-state-in-effect -- open detail once data has arrived
       setSelectedId(focusParam);
-      // ?focus= from "My lanterns" is cleaned up; a shared /l/<id> link keeps its own URL (and its music)
+      // ?focus= from "My lanterns" is cleaned up; a shared /l/<id> link keeps its own URL
       if (params.get("focus")) router.replace("/festival", { scroll: false });
     } else void fetchIds([focusParam]);
   }, [focusParam, loading, lanterns, fetchIds, router, params]);
@@ -207,7 +205,6 @@ export function FestivalView({ initialFocusId, sharedMusic }: { initialFocusId?:
         serverOffset={serverOffset}
         onClose={() => setSelectedId(null)}
         onGone={onGone}
-        music={sharedMusic && selected?.id === initialFocusId ? sharedMusic : null}
         onShare={(id) => {
           setSelectedId(null);
           setShareIsNew(false);
@@ -215,7 +212,6 @@ export function FestivalView({ initialFocusId, sharedMusic }: { initialFocusId?:
         }}
       />
       <ShareDialog lantern={shareLantern} justReleased={shareIsNew} onClose={() => setShareId(null)} />
-      {sharedMusic && selectedId !== initialFocusId && <SharedClipMusic music={sharedMusic} />}
     </div>
   );
 }

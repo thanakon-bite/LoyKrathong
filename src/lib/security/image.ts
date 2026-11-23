@@ -18,4 +18,10 @@ export function sniffImageType(bytes: Uint8Array): SniffedImage {
 }
 
 export const ALLOWED_UPLOAD_MIME = ["image/jpeg", "image/png", "image/webp"] as const;
+/** Largest photo a visitor may pick (it is cropped + compressed in the browser before upload) */
+export const MAX_SOURCE_IMAGE_BYTES = 50 * 1024 * 1024;
+/**
+ * Largest file the upload API accepts. Uploads are the browser-compressed result (≤ 1200 px WEBP,
+ * usually < 1 MB); serverless request bodies are capped around 6 MB on Netlify, so keep this below that.
+ */
 export const MAX_UPLOAD_BYTES = 5 * 1024 * 1024;

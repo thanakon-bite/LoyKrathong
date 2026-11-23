@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { isEmbedBlockedError, loadYouTubeApi, type YTPlayer } from "@/lib/audio/youtube";
 import { CLIP_SECONDS } from "@/lib/share/clip-music";
 import { useAudio } from "@/components/providers/audio-provider";
@@ -28,6 +28,9 @@ export function useYouTubeSegment(videoId: string | null, opts: { loop?: boolean
   const [error, setError] = useState<string | null>(null);
   const [position, setPosition] = useState(0);
   const { suspend } = useAudio();
+  // each player holds the theme music under its own key (several players may exist at once)
+  const holdKey = `yt-${useId()}`;
+  const hold = useCallback((on: boolean) => suspend(on, holdKey), [suspend, holdKey]);
   const loop = opts.loop ?? false;
   const controls = opts.controls ?? false;
 
@@ -40,8 +43,8 @@ export function useYouTubeSegment(videoId: string | null, opts: { loop?: boolean
     clearTimer();
     player.current?.pauseVideo();
     setStatus((s) => (s === "playing" ? "ready" : s));
-    suspend(false);
-  }, [suspend]);
+    hold(false);
+  }, [hold]);
 
   const watch = useCallback(() => {
     clearTimer();
@@ -64,19 +67,19 @@ export function useYouTubeSegment(videoId: string | null, opts: { loop?: boolean
       const p = player.current;
       if (!p) return;
       startRef.current = start;
-      suspend(true);
+      hold(true);
       p.seekTo(start, true);
       p.playVideo();
       setStatus("playing");
       watch();
     },
-    [suspend, watch],
+    [hold, watch],
   );
 
   // latest callbacks for the player's event handlers (the player itself is only rebuilt when the video changes)
-  const latest = useRef({ suspend, watch, stop, loop });
+  const latest = useRef({ hold, watch, stop, loop });
   useEffect(() => {
-    latest.current = { suspend, watch, stop, loop };
+    latest.current = { hold, watch, stop, loop };
   });
 
   useEffect(() => {
@@ -114,12 +117,12 @@ export function useYouTubeSegment(videoId: string | null, opts: { loop?: boolean
               if (cancelled || !window.YT) return;
               if (e.data === window.YT.PlayerState.PLAYING) {
                 setStatus("playing");
-                h().suspend(true);
+                h().hold(true);
                 h().watch();
               } else if (e.data === window.YT.PlayerState.PAUSED) {
                 clearTimer();
                 setStatus("ready");
-                h().suspend(false);
+                h().hold(false);
               } else if (e.data === window.YT.PlayerState.ENDED) {
                 if (h().loop) e.target.seekTo(startRef.current, true);
                 else h().stop();
@@ -128,7 +131,7 @@ export function useYouTubeSegment(videoId: string | null, opts: { loop?: boolean
             onError: (e) => {
               if (cancelled) return;
               clearTimer();
-              h().suspend(false);
+              h().hold(false);
               setError(
                 isEmbedBlockedError(e.data)
                   ? "เจ้าของคลิปไม่อนุญาตให้เล่นบนเว็บอื่น ลองเลือกเพลงอื่น"
@@ -149,7 +152,7 @@ export function useYouTubeSegment(videoId: string | null, opts: { loop?: boolean
     return () => {
       cancelled = true;
       clearTimer();
-      h().suspend(false);
+      h().hold(false);
       player.current?.destroy();
       player.current = null;
     };

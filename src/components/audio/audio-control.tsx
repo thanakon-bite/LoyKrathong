@@ -10,13 +10,15 @@ import { cn } from "@/lib/utils";
 
 /** Floating sound button (mute / unmute) + volume – the theme song plays automatically, audio only */
 export function AudioControl({ className }: { className?: string }) {
-  const { playing, enabled, waitingForGesture, volume, toggle, play, setVolume } = useAudio();
+  const { playing, enabled, waitingForGesture, volume, toggle, play, setVolume, suspended } = useAudio();
   const [open, setOpen] = useState(false);
   const pathname = usePathname();
   // keep clear of the bottom action bars on mobile
   const lift = pathname === "/create" ? "bottom-24 lg:bottom-6" : pathname === "/festival" || pathname.startsWith("/l/") ? "bottom-24 md:bottom-6" : "bottom-4 sm:bottom-6";
   const audible = playing && enabled;
   const Icon = !audible ? VolumeX : volume < 0.4 ? Volume1 : Volume2;
+  // a shared song is playing (or about to) – show only that song's controls
+  if (suspended) return null;
 
   return (
     <div data-audio-control className={cn("fixed right-4 z-40 flex items-center gap-2 sm:right-6", lift, className)}>

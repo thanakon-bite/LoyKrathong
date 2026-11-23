@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { CalendarDays, Clock, Flag, Heart, Loader2, Maximize2, Share2, Sparkles, X } from "lucide-react";
+import { CalendarDays, Clock, Flag, Heart, Loader2, Share2, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 import type { PublicLantern } from "@/types/lantern";
 import { apiFetch } from "@/lib/api-client";
@@ -14,8 +14,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { formatRemaining } from "@/lib/lantern/motion";
 import { EFFECT_META } from "@/lib/lantern/effects-meta";
-import type { ClipMusic } from "@/lib/share/clip-music";
-import { SharedClipMusic } from "@/components/share/shared-clip-music";
+import { DrawnSticker, KeepsakeViewer, lanternKeepsakes, PolaroidPhoto } from "@/components/share/keepsake-viewer";
 
 const REASONS = [
   { id: "inappropriate", label: "เนื้อหาไม่เหมาะสม" },
@@ -44,18 +43,16 @@ interface Props {
   onShare?: (id: string) => void;
   /** owner's river: data comes from /api/me/lanterns – don't re-check the public endpoint */
   ownerView?: boolean;
-  /** music attached to a shared link (shown prominently to the friend who opened it) */
-  music?: ClipMusic | null;
 }
 
-export function LanternDetailDialog({ lantern, serverOffset, onClose, onGone, onShare, ownerView, music }: Props) {
+export function LanternDetailDialog({ lantern, serverOffset, onClose, onGone, onShare, ownerView }: Props) {
   const { user, ensureSession } = useAuth();
   const [fresh, setFresh] = useState<PublicLantern | null>(null);
   const [reporting, setReporting] = useState(false);
   const [reason, setReason] = useState<(typeof REASONS)[number]["id"]>("inappropriate");
   const [details, setDetails] = useState("");
   const [sending, setSending] = useState(false);
-  const [zoom, setZoom] = useState<{ src: string; alt: string; paper: boolean } | null>(null);
+  const [zoom, setZoom] = useState<number | null>(null);
   const data = fresh?.id === lantern?.id ? fresh : lantern;
   const remaining = useCountdown(data?.expiresAt, serverOffset);
   const isMine = !!user && data?.ownerId === user.id;
@@ -97,18 +94,19 @@ export function LanternDetailDialog({ lantern, serverOffset, onClose, onGone, on
   };
 
   const released = data ? new Date(data.releasedAt).toLocaleString("th-TH", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }) : "";
+  const keepsakes = data ? lanternKeepsakes(data) : [];
   const gallery = data
-    ? [
-        data.drawingSrc && { src: data.drawingSrc, alt: `ภาพวาดของ ${data.displayName}`, label: "ภาพวาด", paper: true },
-        data.imageSrc && { src: data.imageSrc, alt: `รูปภาพจาก ${data.displayName}`, label: "รูปภาพ", paper: false },
-      ].filter(Boolean) as Array<{ src: string; alt: string; label: string; paper: boolean }>
+    ? ([
+        data.imageSrc && { kind: "image", src: data.imageSrc, alt: `รูปภาพจาก ${data.displayName}`, label: "รูปภาพ" },
+        data.drawingSrc && { kind: "drawing", src: data.drawingSrc, alt: `สติกเกอร์ที่ ${data.displayName} วาด`, label: "สติกเกอร์" },
+      ].filter(Boolean) as Array<{ kind: "image" | "drawing"; src: string; alt: string; label: string }>)
     : [];
 
   return (
     <Dialog open={!!lantern} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="max-h-[94dvh] max-w-4xl gap-0 overflow-hidden p-0 sm:p-0">
+      <DialogContent className="max-h-[94dvh] max-w-4xl gap-0 overflow-hidden p-0 sm:p-0" onEscapeKeyDown={(e) => zoom !== null && e.preventDefault()}>
         {data && (
-          <div className="grid max-h-[94dvh] grid-cols-[minmax(0,1fr)] grid-rows-[auto_minmax(0,1fr)] md:h-[min(640px,86dvh)] md:grid-cols-[minmax(0,1fr)_minmax(0,1.05fr)] md:grid-rows-1">
+          <div className="relative grid max-h-[94dvh] grid-cols-[minmax(0,1fr)] grid-rows-[auto_minmax(0,1fr)] md:h-[min(640px,86dvh)] md:grid-cols-[minmax(0,1fr)_minmax(0,1.05fr)] md:grid-rows-1">
             {/* ---------- lantern ---------- */}
             <div className="relative h-[34dvh] min-h-56 overflow-hidden bg-night md:h-full">
               <LanternPreview visual={data} label={`โคมของ ${data.displayName}`} />
@@ -156,8 +154,6 @@ export function LanternDetailDialog({ lantern, serverOffset, onClose, onGone, on
                   </div>
                 )}
 
-                {music && <SharedClipMusic music={music} variant="inline" />}
-
                 {data.wishMessage && (
                   <section className="relative rounded-2xl border border-gold/15 bg-gradient-to-br from-white/[0.06] to-white/[0.02] p-4 pl-5">
                     <span className="absolute inset-y-4 left-0 w-1 rounded-full bg-gold/70" />
@@ -179,23 +175,21 @@ export function LanternDetailDialog({ lantern, serverOffset, onClose, onGone, on
 
                 {gallery.length > 0 && (
                   <section>
-                    <h3 className="mb-2 text-xs font-medium tracking-widest text-warm/50">บนกระดาษโคม</h3>
-                    <div className={cn("grid gap-3", gallery.length > 1 ? "grid-cols-2" : "grid-cols-1 sm:max-w-[60%]")}>
-                      {gallery.map((g) => (
+                    <h3 className="mb-3 text-xs font-medium tracking-widest text-warm/50">บนกระดาษโคม · แตะเพื่อดูใกล้ ๆ</h3>
+                    <div className="flex flex-wrap items-start gap-5 px-1 pt-2">
+                      {gallery.map((g, i) => (
                         <button
-                          key={g.label}
+                          key={g.kind}
                           type="button"
-                          onClick={() => setZoom(g)}
-                          aria-label={`ขยาย${g.label}`}
-                          className={cn(
-                            "group relative aspect-square overflow-hidden rounded-2xl ring-1 ring-white/10 transition hover:ring-gold/50",
-                            g.paper ? "bg-[radial-gradient(ellipse_at_50%_40%,#fbf1d9,#efd9ab)]" : "bg-black/40",
-                          )}
+                          onClick={() => setZoom(keepsakes.findIndex((k) => k.kind === g.kind))}
+                          aria-label={`ดู${g.label}`}
+                          className="w-32 transition duration-300 hover:-translate-y-1 hover:scale-[1.04] sm:w-36"
                         >
-                          {/* eslint-disable-next-line @next/next/no-img-element -- short-lived signed URL */}
-                          <img src={g.src} alt={g.alt} loading="lazy" className={cn("h-full w-full transition duration-300 group-hover:scale-[1.04]", g.paper ? "object-contain p-3" : "object-cover")} />
-                          <span className="absolute bottom-2 left-2 rounded-full bg-night/70 px-2.5 py-0.5 text-[11px] text-warm/85 backdrop-blur">{g.label}</span>
-                          <Maximize2 className="absolute right-2 top-2 size-4 text-warm/0 drop-shadow transition group-hover:text-warm/90" />
+                          {g.kind === "image" ? (
+                            <PolaroidPhoto src={g.src} alt={g.alt} caption={data.displayName} size="sm" rotate={i % 2 ? 3 : -3} />
+                          ) : (
+                            <DrawnSticker src={g.src} alt={g.alt} size="sm" rotate={i % 2 ? 4 : -4} />
+                          )}
                         </button>
                       ))}
                     </div>
@@ -248,15 +242,7 @@ export function LanternDetailDialog({ lantern, serverOffset, onClose, onGone, on
               )}
             </div>
 
-            {zoom && (
-              <div className="absolute inset-0 z-10 grid place-items-center bg-black/90 p-4" onClick={() => setZoom(null)} role="presentation">
-                {/* eslint-disable-next-line @next/next/no-img-element -- short-lived signed URL */}
-                <img src={zoom.src} alt={zoom.alt} className={cn("max-h-full max-w-full rounded-2xl object-contain", zoom.paper && "bg-[#f6e7c6] p-4")} />
-                <button type="button" aria-label="ปิดภาพ" onClick={() => setZoom(null)} className="absolute right-4 top-4 rounded-full bg-white/10 p-2 text-warm hover:bg-white/20">
-                  <X className="size-5" />
-                </button>
-              </div>
-            )}
+            <KeepsakeViewer visual={data} items={keepsakes} index={zoom !== null && zoom >= 0 ? zoom : null} onIndex={setZoom} contained />
           </div>
         )}
       </DialogContent>

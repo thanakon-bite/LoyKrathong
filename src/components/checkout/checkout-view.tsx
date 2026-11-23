@@ -9,6 +9,7 @@ import { draftHasContent, draftToVisual, useLanternDraft, type LanternDraft } fr
 import { useAuth } from "@/components/providers/auth-provider";
 import { apiFetch, ClientApiError } from "@/lib/api-client";
 import { dataUrlToBlob } from "@/lib/image-client";
+import { uploadLanternAsset } from "@/lib/upload-client";
 import { LANTERN_DESIGNS } from "@/lib/lantern/designs";
 import { cn, formatTHB, hashString } from "@/lib/utils";
 import { useCatalog } from "@/hooks/use-catalog";
@@ -36,11 +37,7 @@ const STEP_LABEL: Record<Step, string> = {
 };
 
 async function uploadAsset(kind: "image" | "drawing", dataUrl: string) {
-  const blob = await dataUrlToBlob(dataUrl);
-  const form = new FormData();
-  form.append("kind", kind);
-  form.append("file", blob, `${kind}.${blob.type.includes("png") ? "png" : "webp"}`);
-  return apiFetch<{ path: string }>("/api/uploads", { method: "POST", body: form });
+  return uploadLanternAsset(kind, await dataUrlToBlob(dataUrl));
 }
 
 /** Upload image/drawing once; reuse the stored path when retrying with the same content */

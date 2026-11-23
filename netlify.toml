@@ -5,6 +5,8 @@
 
 [build.environment]
   NODE_VERSION = "22"
+  # NEXT_PUBLIC_APP_URL: set it in the Netlify UI only when using a custom domain –
+  # otherwise next.config.ts falls back to the site URL Netlify provides (process.env.URL)
   # Netlify's build image is Linux, so sharp gets the right native binary for upload processing
   NPM_FLAGS = "--include=optional"
 

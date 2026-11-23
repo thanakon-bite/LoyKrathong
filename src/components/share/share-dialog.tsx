@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Check, Copy, Download, ImageIcon, Loader2, Music2, Share2 } from "lucide-react";
+import { Check, Copy, Download, Eye, ImageIcon, Loader2, Music2, Share2 } from "lucide-react";
 import { toast } from "sonner";
 import type { PublicLantern } from "@/types/lantern";
 import { canvasToBlob, renderPolaroid } from "@/lib/share/polaroid";
@@ -148,7 +148,7 @@ export function ShareDialog({ lantern, onClose, justReleased }: Props) {
         <DialogHeader className="pr-8">
           <DialogTitle>{justReleased ? "ปล่อยโคมสำเร็จแล้ว ✨" : "แชร์โคมดวงนี้"}</DialogTitle>
           <DialogDescription>
-            {mode === "music" ? "เลือกเพลงจาก YouTube 15 วินาที เพื่อนเปิดลิงก์แล้วได้ยินพร้อมเห็นโคมของคุณ" : "ส่งโปสการ์ดให้เพื่อน แตะลิงก์แล้วเจอโคมของคุณทันที"}
+            {mode === "music" ? "แนบเพลงจาก YouTube 15 วินาที เพื่อนเปิดลิงก์แล้วเห็นกระทงของคุณลอยใต้แสงจันทร์พร้อมเพลง" : "ส่งโปสการ์ดให้เพื่อน แตะลิงก์แล้วเจอโคมของคุณทันที"}
           </DialogDescription>
         </DialogHeader>
 
@@ -156,7 +156,7 @@ export function ShareDialog({ lantern, onClose, justReleased }: Props) {
           {(
             [
               ["postcard", ImageIcon, "โปสการ์ด"],
-              ["music", Music2, "ลิงก์ + เพลง 15 วิ"],
+              ["music", Music2, "แนบเพลง"],
             ] as const
           ).map(([m, Icon, label]) => (
             <button
@@ -173,6 +173,16 @@ export function ShareDialog({ lantern, onClose, justReleased }: Props) {
         </div>
 
         {mode === "music" && <ClipMusicPicker value={music} onChange={setMusic} />}
+        {withMusic && (
+          <a
+            href={shareUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center justify-center gap-1.5 rounded-full border border-gold/30 py-2 text-xs text-gold transition hover:bg-gold/10"
+          >
+            <Eye className="size-3.5" /> ดูตัวอย่างหน้าที่เพื่อนจะเห็น
+          </a>
+        )}
 
         <div className={cn("relative mx-auto aspect-[9/16] h-[46dvh] max-h-[460px] overflow-hidden rounded-2xl bg-white/5", mode === "music" && "hidden")}>
           {imageUrl ? (

@@ -7,7 +7,7 @@ import { Crop, ImagePlus, Loader2, Move, Trash2, Upload } from "lucide-react";
 import { toast } from "sonner";
 import type { ImageConfig, LanternVisual } from "@/types/lantern";
 import { buildFaceTextures, ensureLanternFonts, imageRect, loadImage, TEX_H, TEX_W } from "@/lib/lantern/texture";
-import { cropAndCompress, readAsDataUrl, validateImageFile } from "@/lib/image-client";
+import { cropAndCompress, prepareImageSource, validateImageFile } from "@/lib/image-client";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
@@ -34,7 +34,16 @@ const ASPECTS = [
 export function ImagePanel({ visual, imageDataUrl, imageConfig, allowed, onImage, onConfig }: Props) {
   const inputRef = useRef<HTMLInputElement>(null);
   const faceRef = useRef<HTMLCanvasElement>(null);
-  const [source, setSource] = useState<string | null>(null);
+  const [source, setSourceState] = useState<string | null>(null);
+  // picked photos are blob: URLs – free the (possibly 50 MB) file as soon as it is replaced or the editor closes
+  const setSource = useCallback((next: string | null) => {
+    setSourceState((prev) => {
+      if (prev && prev !== next && prev.startsWith("blob:")) URL.revokeObjectURL(prev);
+      return next;
+    });
+  }, []);
+  useEffect(() => () => setSource(null), [setSource]);
+  const [loadingFile, setLoadingFile] = useState(false);
   const [crop, setCrop] = useState({ x: 0, y: 0 });
   const [zoom, setZoom] = useState(1);
   const [aspect, setAspect] = useState(1);
@@ -79,14 +88,17 @@ export function ImagePanel({ visual, imageDataUrl, imageConfig, allowed, onImage
       toast.error(err);
       return;
     }
+    setLoadingFile(true);
     try {
-      setSource(await readAsDataUrl(file));
+      setSource(await prepareImageSource(file));
       setCrop({ x: 0, y: 0 });
       setZoom(1);
     } catch (e) {
       toast.error((e as Error).message);
+    } finally {
+      setLoadingFile(false);
     }
-  }, []);
+  }, [setSource]);
 
   const confirmCrop = async () => {
     if (!source || !area) return;
@@ -162,10 +174,10 @@ export function ImagePanel({ visual, imageDataUrl, imageConfig, allowed, onImage
           )}
         >
           <span className="grid size-14 place-items-center rounded-2xl bg-gold/10 text-gold">
-            <ImagePlus className="size-7" />
+            {loadingFile ? <Loader2 className="size-7 animate-spin" /> : <ImagePlus className="size-7" />}
           </span>
-          <span className="text-sm text-warm">แตะเพื่อเลือกรูป หรือลากไฟล์มาวาง</span>
-          <span className="text-xs text-warm/45">JPG, JPEG, PNG, WEBP · ไม่เกิน 5 MB</span>
+          <span className="text-sm text-warm">{loadingFile ? "กำลังเปิดรูป…" : "แตะเพื่อเลือกรูป หรือลากไฟล์มาวาง"}</span>
+          <span className="text-xs text-warm/45">JPG, JPEG, PNG, WEBP · ไม่เกิน 50 MB</span>
         </button>
       ) : (
         <>

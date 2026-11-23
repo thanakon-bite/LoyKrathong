@@ -24,8 +24,14 @@ interface AudioState {
   toggle: () => Promise<void>;
   play: () => Promise<void>;
   setVolume: (v: number) => void;
-  /** Temporarily silence the theme music (e.g. while a shared clip plays) without changing the user's preference */
-  suspend: (on: boolean) => void;
+  /**
+   * Temporarily silence the theme music without changing the user's preference.
+   * Each caller holds its own key (e.g. a playing YouTube clip, a shared-music page);
+   * the theme resumes only when every hold has been released.
+   */
+  suspend: (on: boolean, key?: string) => void;
+  /** some hold is active – the theme song is silenced on purpose */
+  suspended: boolean;
 }
 
 const AudioCtx = createContext<AudioState | null>(null);
@@ -62,7 +68,9 @@ export function AudioProvider({ children }: { children: React.ReactNode }) {
   const sourceRef = useRef<Source>("file");
   const volumeRef = useRef(0.6);
   const enabledRef = useRef(true);
+  const holds = useRef(new Set<string>());
   const suspended = useRef(false);
+  const [isSuspended, setIsSuspended] = useState(false);
 
   const persist = useCallback((next: { muted: boolean; volume: number }) => {
     try {
@@ -145,7 +153,8 @@ export function AudioProvider({ children }: { children: React.ReactNode }) {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- hydrate persisted preference after mount
     setEnabled(p.enabled);
     setVol(p.volume);
-    if (p.enabled) void startOutput();
+    // child effects run first, so a page that holds the music (shared clip) is already registered here
+    if (p.enabled && !suspended.current) void startOutput();
   }, [startOutput]);
 
   // autoplay was blocked → start on the first interaction anywhere on the page
@@ -192,10 +201,14 @@ export function AudioProvider({ children }: { children: React.ReactNode }) {
   );
 
   const suspend = useCallback(
-    (on: boolean) => {
-      if (suspended.current === on) return;
-      suspended.current = on;
-      if (on) {
+    (on: boolean, key = "default") => {
+      if (on) holds.current.add(key);
+      else holds.current.delete(key);
+      const next = holds.current.size > 0;
+      if (suspended.current === next) return;
+      suspended.current = next;
+      setIsSuspended(next);
+      if (next) {
         element.current?.pause();
         void synth.current?.pause();
         setPlaying(false);
@@ -226,8 +239,8 @@ export function AudioProvider({ children }: { children: React.ReactNode }) {
   );
 
   const value = useMemo(
-    () => ({ enabled, playing, waitingForGesture, volume, source, toggle, play, setVolume, suspend }),
-    [enabled, playing, waitingForGesture, volume, source, toggle, play, setVolume, suspend],
+    () => ({ enabled, playing, waitingForGesture, volume, source, toggle, play, setVolume, suspend, suspended: isSuspended }),
+    [enabled, playing, waitingForGesture, volume, source, toggle, play, setVolume, suspend, isSuspended],
   );
   return <AudioCtx.Provider value={value}>{children}</AudioCtx.Provider>;
 }

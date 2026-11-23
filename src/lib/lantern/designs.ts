@@ -139,7 +139,8 @@ export const LIMITS = {
   wishMessage: 200,
   blessingMessage: 160,
   extraMessage: 80,
-  imageBytes: 5 * 1024 * 1024,
+  /** photo picked in the studio (compressed before upload) */
+  imageBytes: 50 * 1024 * 1024,
 } as const;
 
 /** Front-face texture resolution (square) */

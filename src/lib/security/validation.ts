@@ -11,10 +11,10 @@ const cleanText = (max: number, min = 0) =>
     .transform((s) => sanitizeText(s))
     .pipe(z.string().min(min).max(max));
 
-/** Storage object path owned by a user: "<uuid>/<kind>-<uuid>.webp|png" */
+/** Storage object path owned by a user: "<uuid>/[r2-]<kind>-<uuid>.webp|png" (r2- = Cloudflare R2, else Supabase Storage) */
 export const assetPathSchema = z
   .string()
-  .regex(/^[0-9a-f-]{36}\/(image|drawing)-[0-9a-f-]{36}\.(webp|png)$/, "ไฟล์ไม่ถูกต้อง");
+  .regex(/^[0-9a-f-]{36}\/(r2-)?(image|drawing)-[0-9a-f-]{36}\.(webp|png)$/, "ไฟล์ไม่ถูกต้อง");
 
 export const textConfigSchema = z.object({
   font: z.enum(LANTERN_FONT_IDS),

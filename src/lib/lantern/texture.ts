@@ -380,3 +380,56 @@ export function loadImage(src: string): Promise<HTMLImageElement> {
   imageCache.set(src, p);
   return p;
 }
+
+export type FaceContentHit = "image" | "drawing" | "message";
+
+const drawingAlpha = new WeakMap<object, { data: Uint8ClampedArray } | null>();
+
+/** Alpha of the drawing layer around (u, v) in texture space – null when pixels cannot be read */
+function drawingInkNear(drawing: CanvasImageSource, u: number, v: number): boolean | null {
+  let cached = drawingAlpha.get(drawing as object);
+  if (cached === undefined) {
+    try {
+      const c = makeCanvas(TEX_W / 4, Math.round(TEX_H / 4));
+      const g = c.getContext("2d", { willReadFrequently: true })!;
+      g.drawImage(drawing, 0, 0, c.width, c.height);
+      cached = { data: g.getImageData(0, 0, c.width, c.height).data };
+    } catch {
+      cached = null; // tainted canvas (no CORS) – caller falls back to a coarse guess
+    }
+    drawingAlpha.set(drawing as object, cached);
+  }
+  if (!cached) return null;
+  const cw = TEX_W / 4;
+  const ch = Math.round(TEX_H / 4);
+  const cx = Math.round(u / 4);
+  const cy = Math.round(v / 4);
+  const r = 5; // ≈ 20 texture px – fingers are not precise
+  for (let y = Math.max(0, cy - r); y <= Math.min(ch - 1, cy + r); y++)
+    for (let x = Math.max(0, cx - r); x <= Math.min(cw - 1, cx + r); x++) if (cached.data[(y * cw + x) * 4 + 3] > 40) return true;
+  return false;
+}
+
+/** What the visitor tapped on a paper wall: the photo, the hand-drawn sticker or the written text */
+export function hitFaceContent(
+  visual: LanternVisual,
+  assets: FaceAssets,
+  face: "front" | "right" | "back" | "left",
+  u: number,
+  v: number,
+): FaceContentHit | null {
+  const hasText = !!(visual.wishMessage || visual.blessingMessage || visual.extraMessage);
+  if (face !== "front") return hasText ? "message" : null;
+  if (assets.drawing && drawingInkNear(assets.drawing, u, v)) return "drawing";
+  if (assets.image && visual.imageConfig) {
+    const r = imageRect(visual.imageConfig, assets.image, TEX_W, TEX_H);
+    if (u >= r.x && u <= r.x + r.w && v >= r.y && v <= r.y + r.h) return "image";
+  }
+  if (visual.wishMessage) {
+    const box = textBox(visual.textConfig.position, TEX_W, TEX_H);
+    if (v >= box.top && v <= box.top + box.height && Math.abs(u - box.x) <= box.width / 2) return "message";
+  }
+  // unreadable drawing pixels → any tap that is not on the photo / text opens the sticker
+  if (assets.drawing && drawingInkNear(assets.drawing, u, v) === null) return "drawing";
+  return hasText ? "message" : null;
+}

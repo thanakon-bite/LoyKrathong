@@ -10,6 +10,7 @@ import { isSupabaseConfigured } from "@/lib/env";
 import { uuidSchema } from "@/lib/security/validation";
 import { getActiveLantern } from "@/services/lantern-service";
 import { parseClipParams } from "@/lib/share/clip-music";
+import { SharedLanternScene } from "@/components/share/shared-lantern-scene";
 
 export const dynamic = "force-dynamic";
 
@@ -40,7 +41,7 @@ export async function generateMetadata({ params }: Params): Promise<Metadata> {
   };
 }
 
-/** Deep link from a shared postcard: opens the festival focused on this lantern */
+/** Deep link from a shared postcard (festival focused on this lantern) or a song link (moonlit scene) */
 export default async function SharedLanternPage({ params, searchParams }: PageProps) {
   const { id } = await params;
   const query = await searchParams;
@@ -71,9 +72,12 @@ export default async function SharedLanternPage({ params, searchParams }: PagePr
     );
   }
 
+  // "แนบเพลง" link: a dedicated moonlit scene with only this krathong and the owner's song
+  if (music) return <SharedLanternScene lantern={lantern} music={music} />;
+
   return (
     <Suspense>
-      <FestivalView initialFocusId={lantern.id} sharedMusic={music} />
+      <FestivalView initialFocusId={lantern.id} />
     </Suspense>
   );
 }

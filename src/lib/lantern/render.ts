@@ -424,3 +424,57 @@ export function drawReflection(
   }
   ctx.restore();
 }
+
+export interface FacePick {
+  face: "front" | "right" | "back" | "left";
+  /** point in face-texture space (0…TEX_W, 0…TEX_H) */
+  u: number;
+  v: number;
+}
+
+/**
+ * Inverse of drawLantern's face mapping: which paper wall (and which point on its texture)
+ * is under the screen point (sx, sy). Used to open a preview of the photo / sticker / text a visitor taps.
+ */
+export function pickLanternFace(
+  p: Pick<DrawLanternParams, "x" | "y" | "size" | "yaw" | "pitch" | "roll">,
+  sx: number,
+  sy: number,
+): FacePick | null {
+  const u = p.size / 2;
+  const cosY = Math.cos(p.yaw);
+  const sinY = Math.sin(p.yaw);
+  const cosP = Math.cos(p.pitch);
+  const sinP = Math.sin(p.pitch);
+  // undo the roll around the water-line anchor
+  if (p.roll) {
+    const c = Math.cos(-p.roll);
+    const s = Math.sin(-p.roll);
+    const dx = sx - p.x;
+    const dy = sy - p.y;
+    sx = p.x + dx * c - dy * s;
+    sy = p.y + dx * s + dy * c;
+  }
+  const P = (v: V3) => project(v, cosY, sinY, cosP, sinP, u, p.x, p.y);
+  // nearest visible wall first
+  const visible = FACES.map((f) => ({ f, nzr: -f.n[0] * sinY + f.n[1] * cosY }))
+    .filter((x) => x.nzr > 0)
+    .sort((a, b) => b.nzr - a.nzr);
+  for (const { f } of visible) {
+    const tl = P(f.tl);
+    const tr = P(f.tr);
+    const bl = P(f.bl);
+    const ax = tr[0] - tl[0];
+    const ay = tr[1] - tl[1];
+    const bx = bl[0] - tl[0];
+    const by = bl[1] - tl[1];
+    const det = ax * by - ay * bx;
+    if (Math.abs(det) < 1e-6) continue;
+    const px = sx - tl[0];
+    const py = sy - tl[1];
+    const a = (px * by - py * bx) / det;
+    const b = (ax * py - ay * px) / det;
+    if (a >= 0 && a <= 1 && b >= 0 && b <= 1) return { face: f.key, u: a * TEX_W, v: b * TEX_H };
+  }
+  return null;
+}

@@ -32,12 +32,12 @@ Next.js 16 (App Router) · React 19 · TypeScript · Tailwind CSS 4 · shadcn/ui
 | หมวด | รายละเอียด |
 |---|---|
 | **Landing** (`/`) | Hero บนฉากผิวน้ำยามค่ำคืน (Canvas) มีโคมลอย แสงสะท้อนสีทอง คลื่นน้ำ ดวงไฟลอย และพระจันทร์เต็มดวง · สถิติเทศกาลจากฐานข้อมูล · ปุ่มเปิด/ปิดเพลง |
-| **Lantern Studio** (`/create`) | โคมกระดาษทรงลูกบาศก์ 6 แบบ (4 ฟรี + 2 Premium) · สีแสงไฟ · ชื่อ/คำอธิษฐาน/คำอวยพร/ข้อความเพิ่มเติม · 5 ฟอนต์ไทย · สี ขนาด ตำแหน่งข้อความ · **Live Preview 3 มิติ** ข้อความ/ภาพวาด/รูปแสดงบนผิวโคมจริง · วาดภาพ (Pen, Eraser, Color, Brush size, Undo, Redo, Clear, รองรับ Touch/Mouse/Stylus pressure) · อัปโหลดรูป (JPG/PNG/WEBP ≤ 5 MB, Crop, Resize, ลากปรับตำแหน่ง, ลบ) · Preview ในฉากจำลองพร้อมแอนิเมชันจุดเทียน |
+| **Lantern Studio** (`/create`) | โคมกระดาษทรงลูกบาศก์ 6 แบบ (4 ฟรี + 2 Premium) · สีแสงไฟ · ชื่อ/คำอธิษฐาน/คำอวยพร/ข้อความเพิ่มเติม · 5 ฟอนต์ไทย · สี ขนาด ตำแหน่งข้อความ · **Live Preview 3 มิติ** ข้อความ/ภาพวาด/รูปแสดงบนผิวโคมจริง · วาดภาพ (Pen, Eraser, Color, Brush size, Undo, Redo, Clear, รองรับ Touch/Mouse/Stylus pressure) · อัปโหลดรูป (JPG/PNG/WEBP ≤ 50 MB – ย่อ/บีบอัดบนเบราว์เซอร์ก่อนส่ง, Crop, Resize, ลากปรับตำแหน่ง, ลบ) · Preview ในฉากจำลองพร้อมแอนิเมชันจุดเทียน |
 | **Checkout** (`/checkout`) | สรุปรายการแบบแยกชิ้น (สีโคม + เอฟเฟกต์ + ใส่เงินลงกระทง) ราคาคำนวณใหม่ที่ server จากฐานข้อมูล → รวม 0 บาทปล่อยทันที / มียอดไป Stripe Checkout (1 รายการ Stripe ต่อ 1 ชิ้น) |
 | **ของเสริม** | สีโคมมีราคาของตัวเอง · เอฟเฟกต์ 9 แบบเลือกได้หลายอัน (พลุ หัวใจ ดาวระยิบ กลีบดอกไม้ ผีเสื้อ หิ่งห้อย กรอบลายไทย รุ้ง ออร่าทอง) · ใส่เงินลงกระทง (ปุ่มยอดสำเร็จ + ใส่เอง) แสดงป้ายเหรียญทองเหนือโคม |
 | **Festival** (`/festival`) | ผิวน้ำขนาดใหญ่ · โคมลอยแบบไม่เป็นเส้นตรง (โยกตามคลื่น หมุนเล็กน้อย เงาสะท้อน) · Real-time ผ่าน Supabase Broadcast · สูงสุด 50 โคมต่อจอ · โคมของเจ้าของมี Priority สูงสุด · กล้องติดตามโคมของตัวเอง · คลิกโคมเพื่อหยุด/ซูม/อ่านรายละเอียด · Hover + Cursor pointer · รายงานโคมไม่เหมาะสม |
 | **Lifecycle** | อายุ **7 วัน** (กำหนดโดย DB): 0–5 นาที ใกล้ · 5–30 นาที ลอยออกไป · หลังจากนั้นลอยพักกลางสายน้ำ · ชั่วโมงสุดท้ายหรี่และจางหาย · หลัง 7 วันไม่แสดงในเทศกาล แต่เจ้าของยังดูได้ใน “สายน้ำของฉัน” |
-| **แชร์** | หลังปล่อยโคม: โปสการ์ดโพลารอยด์ (1080×1920) → Instagram Story / Facebook / LINE / คัดลอกลิงก์ · ลิงก์ `/l/<id>` เปิดเทศกาลแล้วซูมไปที่โคมนั้น · OG image เฉพาะโคม · **ลิงก์ + เพลง 15 วิ**: วางลิงก์ YouTube เลือกท่อน 15 วินาที (มีปุ่มฟังตัวอย่าง) → ลิงก์ `/l/<id>?yt=<videoId>&t=<วินาที>` เล่นท่อนนั้นวนซ้ำผ่านเครื่องเล่นทางการของ YouTube (ไม่ดึง/ดาวน์โหลดไฟล์เสียง · คลิปที่เจ้าของปิดการฝังจะแจ้งให้เลือกเพลงอื่น) |
+| **แชร์** | หลังปล่อยโคม: โปสการ์ดโพลารอยด์ (1080×1920) → Instagram Story / Facebook / LINE / คัดลอกลิงก์ · ลิงก์ `/l/<id>` เปิดเทศกาลแล้วซูมไปที่โคมนั้น · OG image เฉพาะโคม · **แนบเพลง**: วางลิงก์ YouTube แล้วลากเลือกท่อน 15 วินาทีบนไทม์ไลน์ (มีปุ่มฟังตัวอย่าง) → ลิงก์ `/l/<id>?yt=<videoId>&t=<วินาที>` เปิดฉากกระทงลอยใต้แสงจันทร์ เพลงเล่นจากแผ่นเสียง (กด Pause แล้วกลับเป็นเพลงพื้นหลังเว็บ) แตะรูป/สติกเกอร์/ข้อความบนกระทงเพื่อดูแบบโพลารอยด์ · เล่นผ่านเครื่องเล่นทางการของ YouTube (ไม่ดึง/ดาวน์โหลดไฟล์เสียง · คลิปที่เจ้าของปิดการฝังจะแจ้งให้เลือกเพลงอื่น) |
 | **Interaction** | ลากหมุนโคม 360° (Studio/Preview) · ลากเลื่อน/ถ่างนิ้ว/ล้อเมาส์/ลูกศร ในฉากเทศกาล |
 | **เพลง** | เพลงธีม mp3 (เสียงอย่างเดียว) เปิดอัตโนมัติ วนซ้ำ · ปุ่มปิดเสียง/ระดับเสียง · fallback ดนตรีสังเคราะห์ |
 | **My Lanterns** (`/my-lanterns`) | โคมของฉัน + เวลาที่เหลือ + ประวัติการชำระเงิน · ผูกโคมเข้าบัญชีด้วยอีเมล |
@@ -256,6 +256,27 @@ SUPABASE_SERVICE_ROLE_KEY=eyJ...        # Server เท่านั้น ห้
 
 ---
 
+## Cloudflare R2 (รูปบนโคม ≤ 50 MB)
+
+เบราว์เซอร์อัปโหลดรูปตรงไป R2 ด้วย Presigned URL (ไม่ผ่าน Function ของ Netlify ที่จำกัด body ~6 MB) แล้ว `/api/uploads/direct/complete` ตรวจ magic bytes + re-encode ด้วย sharp (ลบ EXIF/GPS) เก็บเป็น `<userId>/r2-image-<uuid>.webp` และลบไฟล์ต้นฉบับใน `raw/` · ถ้าไม่ตั้งค่า R2 ระบบจะกลับไปใช้ Supabase Storage เอง (≤ 5 MB) · รูปของโคมเก่าใน Supabase ยังเปิดได้ตามปกติ
+
+1. Cloudflare Dashboard → **R2** → Create bucket ชื่อ `lantern-assets` (Private ไม่ต้องเปิด Public access)
+2. R2 → **Manage R2 API Tokens** → Create API token → สิทธิ์ **Object Read & Write** เฉพาะ bucket นี้ → ได้ Access Key ID / Secret Access Key และ Account ID
+3. Bucket → Settings → **CORS policy** (แทนที่ origin ด้วยโดเมนจริง + localhost ตอนพัฒนา):
+   ```json
+   [
+     {
+       "AllowedOrigins": ["https://loykrathong-onlinebylion.netlify.app", "http://localhost:3000"],
+       "AllowedMethods": ["GET", "PUT", "HEAD"],
+       "AllowedHeaders": ["content-type"],
+       "MaxAgeSeconds": 3600
+     }
+   ]
+   ```
+   ต้องมี GET ด้วย เพราะรูปถูกวาดลง Canvas (โหลดแบบ `crossOrigin="anonymous"`)
+4. Bucket → Settings → **Object lifecycle rules** → Add rule: prefix `raw/` → Delete objects after **1 day** (ล้างไฟล์ที่อัปโหลดค้าง)
+5. ใส่ `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET` ใน `.env.local` และบน Netlify (`netlify env:set ...`) แล้ว deploy ใหม่
+
 ## Deploy บน Netlify (ผ่าน command line)
 
 > Netlify ตรวจเจอ Next.js เองผ่าน OpenNext adapter — ไม่ต้องติดตั้ง plugin เพิ่ม · `netlify.toml` ตั้งค่า build + งานล้างโคมหมดอายุทุก 10 นาที (`netlify/functions/cleanup-cron.mjs`) ไว้แล้ว
@@ -264,9 +285,9 @@ SUPABASE_SERVICE_ROLE_KEY=eyJ...        # Server เท่านั้น ห้
 ```bash
 npm install -g netlify-cli
 netlify login                                   # เปิดเบราว์เซอร์ให้ล็อกอิน
-netlify sites:create --name <ชื่อเว็บ>           # ได้ URL https://<ชื่อเว็บ>.netlify.app (ถ้าไม่ได้ link ให้รัน netlify link)
+netlify sites:create --name <ชื่อเว็บ>          # ได้ URL https://loykrathong-onlinebylion.netlify.app (ถ้าไม่ได้ link ให้รัน netlify link)
 netlify env:import .env.local                   # ส่งค่า env ขึ้น Netlify
-netlify env:set NEXT_PUBLIC_APP_URL https://<ชื่อเว็บ>.netlify.app
+netlify env:set NEXT_PUBLIC_APP_URL https://loykrathong-onlinebylion.netlify.app
 netlify env:set CRON_SECRET <สุ่มยาว ๆ>
 netlify env:set CLAIM_TOKEN_SECRET <สุ่มยาว ๆ>
 netlify deploy --remote --prod                  # build บน Netlify แล้วขึ้น production
@@ -275,8 +296,8 @@ netlify deploy --remote --prod                  # build บน Netlify แล้
 ครั้งต่อไปที่แก้โค้ด: `netlify deploy --remote --prod` คำสั่งเดียว
 
 หลัง deploy:
-- **Supabase** → Authentication → URL Configuration: ตั้ง Site URL และเพิ่ม Redirect URL `https://<ชื่อเว็บ>.netlify.app/**`
-- **Stripe** → Webhooks → Add endpoint `https://<ชื่อเว็บ>.netlify.app/api/webhooks/stripe` (events: `checkout.session.completed`, `checkout.session.async_payment_succeeded`, `checkout.session.async_payment_failed`, `checkout.session.expired`) → นำ Signing secret ไป `netlify env:set STRIPE_WEBHOOK_SECRET whsec_...` แล้ว deploy ใหม่
+- **Supabase** → Authentication → URL Configuration: ตั้ง Site URL และเพิ่ม Redirect URL `https://loykrathong-onlinebylion.netlify.app/**`
+- **Stripe** → Webhooks → Add endpoint `https://loykrathong-onlinebylion.netlify.app/api/webhooks/stripe` (events: `checkout.session.completed`, `checkout.session.async_payment_succeeded`, `checkout.session.async_payment_failed`, `checkout.session.expired`) → นำ Signing secret ไป `netlify env:set STRIPE_WEBHOOK_SECRET whsec_...` แล้ว deploy ใหม่
 - ค่า `NEXT_PUBLIC_*` ถูกฝังตอน build — เปลี่ยนค่าแล้วต้อง deploy ใหม่ทุกครั้ง
 
 ## Deploy บน Vercel
@@ -315,7 +336,7 @@ netlify deploy --remote --prod                  # build บน Netlify แล้
 
 - **Validation**: Zod ทั้งฝั่ง Client และ Server, DB check constraints เป็นชั้นสุดท้าย
 - **Sanitize**: ตัด control/bidi-override characters และ tag, ข้อความแสดงผลเป็น text node / canvas เท่านั้น (ไม่มี HTML injection), JSON-LD escape `<`
-- **Upload**: ตรวจ magic bytes (ไม่เชื่อนามสกุลไฟล์), จำกัด 5 MB, จำกัดจำนวนพิกเซล, **re-encode ด้วย sharp** (ลบ EXIF/GPS และ payload แฝง), Bucket เป็น private + Signed URL หมดอายุพร้อมโคม, path ต้องอยู่ในโฟลเดอร์ของผู้ใช้เอง
+- **Upload**: เลือกรูปต้นฉบับได้ ≤ 50 MB แต่เบราว์เซอร์ครอป+บีบอัดเป็น WEBP ≤ 1200px ก่อนส่ง (API รับ ≤ 5 MB เพราะ Serverless ของ Netlify จำกัด body ~6 MB), ตรวจ magic bytes (ไม่เชื่อนามสกุลไฟล์), จำกัดจำนวนพิกเซล, **re-encode ด้วย sharp** (ลบ EXIF/GPS และ payload แฝง), Bucket เป็น private + Signed URL หมดอายุพร้อมโคม, path ต้องอยู่ในโฟลเดอร์ของผู้ใช้เอง
 - **Rate limit**: แบบ DB (ใช้ได้กับ serverless หลาย instance) — ปล่อยโคม 5 ครั้ง/10 นาที/ผู้ใช้, อัปโหลด, checkout, report, อ่าน API
 - **Anti-spam / Duplicate**: `requestId` (UUID) unique ต่อผู้ใช้ — กดซ้ำหรือ retry ได้โคมเดิม, Stripe idempotency key, `payments.stripe_session_id` unique, `lanterns.payment_id` unique, `stripe_events` dedupe
 - **RLS**: เปิดทุกตาราง, Client อ่านได้เฉพาะโคมที่กำลังลอยและ column ที่อนุญาต, ข้อมูลส่วนตัว/ชำระเงินอ่านได้เฉพาะเจ้าของ, การเขียนทั้งหมดผ่าน Server

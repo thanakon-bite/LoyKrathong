@@ -11,11 +11,19 @@ try {
 const isDev = process.env.NODE_ENV !== "production";
 
 /**
+ * Public site URL (SEO, canonical, Stripe redirects). Falls back to the URL Netlify provides at build time
+ * (process.env.URL), so a deploy without NEXT_PUBLIC_APP_URL still links to itself instead of localhost.
+ */
+const appUrl = (process.env.NEXT_PUBLIC_APP_URL || process.env.URL || "http://localhost:3000").replace(/\/$/, "");
+
+/**
  * Supabase origins allowed by the CSP. *.supabase.co is always allowed so the policy
  * keeps working even if the env var was missing/invalid when the server started;
  * a custom Supabase domain (if any) is added from NEXT_PUBLIC_SUPABASE_URL.
  */
 const supabaseHttp = ["https://*.supabase.co", ...(supabaseHost && !supabaseHost.endsWith(".supabase.co") ? [`https://${supabaseHost}`] : [])].join(" ");
+/** Cloudflare R2 (lantern images): presigned PUT from the browser + presigned GET for <img>/canvas */
+const r2Http = "https://*.r2.cloudflarestorage.com";
 const supabaseWs = ["wss://*.supabase.co", ...(supabaseHost && !supabaseHost.endsWith(".supabase.co") ? [`wss://${supabaseHost}`] : [])].join(" ");
 
 /**
@@ -29,10 +37,11 @@ const csp = [
   `script-src 'self' 'unsafe-inline'${isDev ? " 'unsafe-eval'" : ""} https://www.youtube.com https://s.ytimg.com`,
   "frame-src https://www.youtube-nocookie.com https://www.youtube.com",
   "style-src 'self' 'unsafe-inline'",
-  `img-src 'self' data: blob: ${supabaseHttp}`,
+  // i.ytimg.com: thumbnail of the song attached to a shared link
+  `img-src 'self' data: blob: ${supabaseHttp} ${r2Http} https://i.ytimg.com`,
   "font-src 'self' data:",
-  `media-src 'self' blob: ${supabaseHttp}`,
-  `connect-src 'self' ${supabaseHttp} ${supabaseWs}`,
+  `media-src 'self' blob: ${supabaseHttp} ${r2Http}`,
+  `connect-src 'self' ${supabaseHttp} ${supabaseWs} ${r2Http}`,
   "frame-ancestors 'none'",
   "base-uri 'self'",
   "form-action 'self' https://checkout.stripe.com",
@@ -51,6 +60,7 @@ const securityHeaders = [
 
 const nextConfig: NextConfig = {
   poweredByHeader: false,
+  env: { NEXT_PUBLIC_APP_URL: isDev && !process.env.NEXT_PUBLIC_APP_URL ? "http://localhost:3000" : appUrl },
   images: {
     remotePatterns: supabaseHost
       ? [{ protocol: "https", hostname: supabaseHost, pathname: "/storage/v1/object/**" }]
