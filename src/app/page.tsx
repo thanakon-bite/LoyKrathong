@@ -27,7 +27,7 @@ export default function HomePage() {
       eventStatus: "https://schema.org/EventScheduled",
       eventAttendanceMode: "https://schema.org/OnlineEventAttendanceMode",
       location: { "@type": "VirtualLocation", url: absoluteUrl("/festival") },
-      image: [absoluteUrl("/opengraph-image")],
+      image: [absoluteUrl("/opengraph-image.png")],
       isAccessibleForFree: true,
       organizer: { "@type": "Organization", name: SITE.name, url: absoluteUrl("/") },
       offers: { "@type": "Offer", price: "0", priceCurrency: "THB", availability: "https://schema.org/InStock", url: absoluteUrl("/create") },

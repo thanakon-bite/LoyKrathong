@@ -36,6 +36,8 @@ export const metadata: Metadata = {
   twitter: { card: "summary_large_image", title: SITE.title, description: SITE.description },
   robots: { index: true, follow: true, googleBot: { index: true, follow: true, "max-image-preview": "large" } },
   formatDetection: { telephone: false },
+  // Google Search Console "HTML tag" verification (public value, set at build time)
+  ...(process.env.NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION ? { verification: { google: process.env.NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION } } : {}),
 };
 
 export const viewport: Viewport = {
