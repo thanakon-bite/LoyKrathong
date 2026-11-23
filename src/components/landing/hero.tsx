@@ -63,7 +63,7 @@ export function Hero() {
         </motion.div>
       </div>
 
-      <a href="#stats" aria-label="เลื่อนลง" className="absolute bottom-6 left-1/2 -translate-x-1/2 animate-float text-warm/50 hover:text-gold">
+      <a href="#stats" aria-label="เลื่อนลง" className="absolute bottom-[calc(1.5rem+var(--nf-badge))] left-1/2 -translate-x-1/2 animate-float text-warm/50 hover:text-gold">
         <ChevronDown className="size-7" />
       </a>
     </section>

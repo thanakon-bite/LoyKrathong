@@ -331,7 +331,13 @@ export function CheckoutView() {
           </p>
         )}
 
-        <Button size="lg" className="w-full" disabled={!q || !!priced.problem || busy || !configured} onClick={submit}>
+        {/* phones: stick above Netlify's "Powered by" badge instead of sliding under it */}
+        <Button
+          size="lg"
+          className="sticky bottom-[calc(0.75rem+var(--nf-badge))] z-20 w-full shadow-[0_8px_30px_-6px_rgba(0,0,0,0.8)] md:static md:shadow-none"
+          disabled={!q || !!priced.problem || busy || !configured}
+          onClick={submit}
+        >
           {busy ? <Loader2 className="animate-spin" /> : total > 0 ? QR_ONLY ? <QrCode /> : <CreditCard /> : <Send />}
           {busy ? STEP_LABEL[step] : total > 0 ? `${QR_ONLY ? "สแกน QR จ่าย" : "ชำระเงิน"} ${formatTHB(total)}` : "ปล่อยโคมเลย (ฟรี)"}
         </Button>
