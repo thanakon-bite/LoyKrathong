@@ -754,19 +754,15 @@ export class FestivalEngine {
     ev.preventDefault();
     this.startManual();
     this.userCam.z -= ev.deltaY * 0.01;
-    this.orbitTarget += ev.deltaX * 0.004;
+    this.userCam.x += ev.deltaX * this.worldPerPx;
     this.clampUserCam();
   };
 
   private onKeyDown = (ev: KeyboardEvent) => {
     if (this.focusId) return;
-    if (ev.key === "ArrowLeft" || ev.key === "ArrowRight") {
-      ev.preventDefault();
-      this.startManual();
-      this.orbitTarget += ev.key === "ArrowLeft" ? -0.25 : 0.25;
-      return;
-    }
     const moves: Record<string, [number, number]> = {
+      ArrowLeft: [-0.6, 0],
+      ArrowRight: [0.6, 0],
       ArrowUp: [0, 0.9],
       ArrowDown: [0, -0.9],
     };
@@ -801,17 +797,17 @@ export class FestivalEngine {
       this.dragDistance += Math.abs(dx) + Math.abs(dy);
       if (this.dragDistance > 8) {
         this.startManual();
-        // drag sideways → orbit 360° around the river; drag down → glide forward
-        const turn = (dx / Math.max(1, this.view.w)) * Math.PI * 1.6;
+        // grab-the-water feel: drag left → view moves right, drag down → glide forward
+        // (360° turning happens on a single lantern in its card, not here)
+        const sx = -dx * this.worldPerPx;
         const sz = (dy / Math.max(1, this.view.h)) * 14;
-        this.orbitTarget += turn;
+        this.userCam.x += sx;
         this.userCam.z += sz;
         this.clampUserCam();
         const now = performance.now();
         const dt = Math.max(0.008, (now - this.lastMoveT) / 1000);
         this.lastMoveT = now;
-        this.orbitVel = (turn / dt) * 0.5;
-        this.camVel = { x: 0, z: (sz / dt) * 0.6 };
+        this.camVel = { x: (sx / dt) * 0.6, z: (sz / dt) * 0.6 };
         this.canvas.style.cursor = "grabbing";
       }
       return;

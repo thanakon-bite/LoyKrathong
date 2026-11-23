@@ -22,6 +22,9 @@ interface Props {
   interactive?: boolean;
 }
 
+/** user tilt limit: lantern can spin 360° but the camera never dips under the water line */
+const MIN_PITCH = -0.3;
+
 /** Single cube lantern on a small patch of night water – used by the Studio, Preview and Detail view */
 export function LanternPreview({ visual, className, ignite, rotate = true, yawOffset = 0, still, label, interactive = true }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -123,7 +126,7 @@ export function LanternPreview({ visual, className, ignite, rotate = true, yawOf
       // inertia after a drag
       if (!drag.current) {
         userYaw.current += vel.current.yaw;
-        userPitch.current = Math.max(-0.33, Math.min(0.55, userPitch.current + vel.current.pitch));
+        userPitch.current = Math.max(MIN_PITCH, Math.min(0.55, userPitch.current + vel.current.pitch));
         vel.current.yaw *= 0.93;
         vel.current.pitch *= 0.9;
       }
@@ -181,7 +184,7 @@ export function LanternPreview({ visual, className, ignite, rotate = true, yawOf
     const dYaw = ((e.clientX - d.x) / w) * Math.PI * 1.4;
     const dPitch = ((e.clientY - d.y) / w) * 1.2;
     userYaw.current += dYaw;
-    userPitch.current = Math.max(-0.33, Math.min(0.55, userPitch.current + dPitch));
+    userPitch.current = Math.max(MIN_PITCH, Math.min(0.55, userPitch.current + dPitch));
     const dt = Math.max(8, performance.now() - d.t);
     vel.current = { yaw: (dYaw * 16) / dt, pitch: (dPitch * 16) / dt };
     drag.current = { id: d.id, x: e.clientX, y: e.clientY, t: performance.now() };
@@ -196,7 +199,7 @@ export function LanternPreview({ visual, className, ignite, rotate = true, yawOf
     const step = 0.25;
     if (e.key === "ArrowLeft") userYaw.current -= step;
     else if (e.key === "ArrowRight") userYaw.current += step;
-    else if (e.key === "ArrowUp") userPitch.current = Math.max(-0.33, userPitch.current - 0.1);
+    else if (e.key === "ArrowUp") userPitch.current = Math.max(MIN_PITCH, userPitch.current - 0.1);
     else if (e.key === "ArrowDown") userPitch.current = Math.min(0.55, userPitch.current + 0.1);
     else return;
     e.preventDefault();

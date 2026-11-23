@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { Menu, X } from "lucide-react";
+import { Menu, Sparkles, X } from "lucide-react";
 import { Logo } from "./logo";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -57,6 +57,14 @@ export function SiteHeader() {
             <Link href="/create">สร้างโคมอธิษฐาน</Link>
           </Button>
         </div>
+        {pathname !== "/festival" && (
+          <Link
+            href="/festival"
+            className="ml-auto mr-1 flex items-center gap-1.5 rounded-full border border-gold/40 bg-gold/15 px-3 py-1.5 text-xs font-medium text-gold shadow-[0_0_18px_-6px_rgba(245,185,66,0.8)] md:hidden"
+          >
+            <Sparkles className="size-3.5" /> เทศกาล
+          </Link>
+        )}
         <button
           type="button"
           className="rounded-full p-2 text-warm md:hidden"
