@@ -61,6 +61,8 @@ export interface ImageConfig {
   y: number;
   /** Width relative to face width, 0.2 … 1 */
   scale: number;
+  /** photo frame shape (older lanterns: none = "rounded") */
+  frame?: PhotoFrame;
 }
 
 export interface DrawingData {
@@ -154,3 +156,17 @@ export type LanternFaces = Partial<Record<ExtraFaceId, FaceArt>>;
 
 /** Thai wall names for the studio and the viewers */
 export const FACE_LABEL_TH: Record<LanternFaceId, string> = { front: "ด้านหน้า", right: "ด้านขวา", back: "ด้านหลัง", left: "ด้านซ้าย" };
+
+/* ------------------------------------------------------------------ photo frames */
+
+/** Shapes a photo can be cut to on the paper (tap the photo in the studio to cycle) */
+export const PHOTO_FRAMES = ["rounded", "circle", "heart", "star", "arch", "flower"] as const;
+export type PhotoFrame = (typeof PHOTO_FRAMES)[number];
+export const PHOTO_FRAME_LABEL_TH: Record<PhotoFrame, string> = {
+  rounded: "สี่เหลี่ยมมน",
+  circle: "วงกลม",
+  heart: "หัวใจ",
+  star: "ดาว",
+  arch: "ซุ้มโค้ง",
+  flower: "ดอกไม้",
+};

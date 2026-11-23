@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
-import { Brush, Check, Eye, Hand, ImageIcon, Palette, Sparkles, Type, RotateCcw } from "lucide-react";
+import { Brush, Check, Coins, Eye, Hand, ImageIcon, Palette, Sparkles, Type, RotateCcw } from "lucide-react";
 import { toast } from "sonner";
 import { draftHasContent, draftToVisual, faceDraft, patchFace, useLanternDraft } from "@/hooks/use-lantern-draft";
 import { LANTERN_DESIGNS } from "@/lib/lantern/designs";
@@ -11,7 +11,7 @@ import { LanternPreview } from "@/components/lantern/lantern-preview";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { facesForShape, type LanternFaceId, type LanternVisual } from "@/types/lantern";
+import { facesForShape, type ImageConfig, type LanternFaceId, type LanternVisual } from "@/types/lantern";
 import { cn } from "@/lib/utils";
 import { DesignPicker } from "./design-picker";
 import { TextPanel } from "./text-panel";
@@ -22,6 +22,8 @@ import { EffectsPicker } from "./effects-picker";
 import { FacePicker } from "./face-picker";
 import { useCatalog } from "@/hooks/use-catalog";
 import { quote } from "@/lib/pricing";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { OfferingPicker, offeringProblem } from "./offering-picker";
 
 const TABS = [
   { id: "design", label: "แบบโคม", icon: Palette },
@@ -105,6 +107,7 @@ export function Studio() {
   const [preview, setPreview] = useState(false);
   const [errors, setErrors] = useState<Partial<Record<"displayName" | "content", string>>>({});
   const [pickedFace, setFace] = useState<LanternFaceId>("front");
+  const [offerOpen, setOfferOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   const typing = useTypingViewport(rootRef);
 
@@ -119,7 +122,13 @@ export function Studio() {
   const subtotal = useMemo(() => {
     if (!catalog || !draft) return 0;
     try {
-      return quote(catalog, { design: draft.design, shape: draft.shape, effects: draft.effects ?? [], offering: 0 }).total;
+      const sel = { design: draft.design, shape: draft.shape, effects: draft.effects ?? [], offering: draft.offering ?? 0 };
+      try {
+        return quote(catalog, sel).total;
+      } catch {
+        // an offering outside the allowed range – price the lantern without it
+        return quote(catalog, { ...sel, offering: 0 }).total;
+      }
     } catch {
       return 0;
     }
@@ -129,7 +138,7 @@ export function Studio() {
   const face: LanternFaceId = facesForShape(shape).includes(pickedFace) ? pickedFace : "front";
   const onDrawing = useCallback((d: string | null) => update((cur) => patchFace(cur, face, { drawingDataUrl: d })), [update, face]);
   const onImage = useCallback((d: string | null) => update((cur) => patchFace(cur, face, { imageDataUrl: d })), [update, face]);
-  const onImageConfig = useCallback((c: { x: number; y: number; scale: number }) => update((cur) => patchFace(cur, face, { imageConfig: c })), [update, face]);
+  const onImageConfig = useCallback((c: ImageConfig) => update((cur) => patchFace(cur, face, { imageConfig: c })), [update, face]);
 
   if (!draft || !visual) {
     return (
@@ -152,6 +161,25 @@ export function Studio() {
     }
     return true;
   };
+  const offering = draft.offering ?? 0;
+  const offerSettings = catalog?.offering;
+  const offerOn = offerSettings?.enabled !== false;
+  const coinBtn = offerOn && (
+    <Button
+      type="button"
+      size="lg"
+      variant="ghost"
+      onClick={() => setOfferOpen(true)}
+      aria-label={offering > 0 ? `ใส่เงินลงกระทง ${offering} บาท แตะเพื่อแก้ไข` : "ใส่เงินลงกระทง"}
+      className={cn(
+        "shrink-0 gap-1.5 rounded-full border px-3",
+        offering > 0 ? "border-gold/70 bg-gold/15 text-gold shadow-[0_0_18px_-6px_rgba(245,185,66,0.9)]" : "border-gold/25 text-gold/90",
+      )}
+    >
+      <Coins />
+      <span className="text-sm tabular-nums">{offering > 0 ? `฿${offering.toLocaleString("th-TH")}` : "ใส่เงิน"}</span>
+    </Button>
+  );
   const askReset = () => (confirm("ล้างโคมที่ออกแบบไว้ทั้งหมด?") ? reset() : undefined);
 
   const art = faceDraft(draft, face);
@@ -204,6 +232,7 @@ export function Studio() {
           )}
         </motion.div>
         <div className="mt-4 hidden gap-3 lg:flex">
+          {coinBtn}
           <Button size="lg" className="flex-1" onClick={() => validate() && setPreview(true)}>
             {cta}
           </Button>
@@ -227,7 +256,7 @@ export function Studio() {
             </TabsList>
           </div>
           {/* the panel takes exactly the height that is left on phones (it only scrolls inside, e.g. with the keyboard open) */}
-          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 pb-2 pt-3 lg:overflow-visible lg:p-0">
+          <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden overscroll-contain px-3 pb-2 pt-3 lg:overflow-visible lg:p-0">
             <TabsContent value="design" className="mt-0 lg:mt-4">
               <DesignPicker
                 design={draft.design}
@@ -280,11 +309,27 @@ export function Studio() {
           <Button size="lg" variant="ghost" className="shrink-0 px-3" aria-label="เริ่มออกแบบใหม่" onClick={askReset}>
             <RotateCcw />
           </Button>
-          <Button size="lg" className="flex-1" onClick={() => validate() && setPreview(true)}>
+          {coinBtn}
+          <Button size="lg" className="min-w-0 flex-1 px-3" onClick={() => validate() && setPreview(true)}>
             {cta}
           </Button>
         </div>
       </div>
+
+      <Dialog open={offerOpen} onOpenChange={setOfferOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Coins className="size-5 text-gold" /> ใส่เงินลงกระทง <span className="text-xs font-normal text-warm/50">(ไม่บังคับ)</span>
+            </DialogTitle>
+            <DialogDescription>เลือกเหรียญหรือใส่จำนวนเอง ยอดเงินจะแสดงเด่นบนหัวโคมของคุณ</DialogDescription>
+          </DialogHeader>
+          <OfferingPicker settings={offerSettings} value={offering} onChange={(v) => update({ offering: v })} />
+          <Button size="lg" onClick={() => setOfferOpen(false)} disabled={!!offeringProblem(offerSettings, offering)}>
+            <Check /> {offering > 0 ? `ใส่ ฿${offering.toLocaleString("th-TH")} ลงกระทง` : "ไม่ใส่เงิน"}
+          </Button>
+        </DialogContent>
+      </Dialog>
 
       <PreviewDialog
         open={preview}

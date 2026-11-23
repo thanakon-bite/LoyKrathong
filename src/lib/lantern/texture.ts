@@ -1,4 +1,4 @@
-import { EXTRA_FACE_IDS, facesForShape, type ExtraFaceId, type FaceArt, type ImageConfig, type LanternDesignId, type LanternFaceId, type LanternVisual, type TextPosition } from "@/types/lantern";
+import { EXTRA_FACE_IDS, facesForShape, type ExtraFaceId, type FaceArt, type ImageConfig, type LanternDesignId, type LanternFaceId, type LanternVisual, type PhotoFrame, type TextPosition } from "@/types/lantern";
 import { mixHex, rgba, seededRandom } from "@/lib/utils";
 import { LANTERN_DESIGNS, LANTERN_FONTS, type LanternPattern } from "./designs";
 
@@ -1655,16 +1655,6 @@ function drawPattern(ctx: CanvasRenderingContext2D, designId: LanternDesignId, f
   ctx.restore();
 }
 
-function roundRectPath(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
-  ctx.beginPath();
-  ctx.moveTo(x + r, y);
-  ctx.arcTo(x + w, y, x + w, y + h, r);
-  ctx.arcTo(x + w, y + h, x, y + h, r);
-  ctx.arcTo(x, y + h, x, y, r);
-  ctx.arcTo(x, y, x + w, y, r);
-  ctx.closePath();
-}
-
 function sourceSize(src: CanvasImageSource): [number, number] {
   if (src instanceof HTMLImageElement) return [src.naturalWidth || src.width, src.naturalHeight || src.height];
   if (src instanceof HTMLCanvasElement) return [src.width, src.height];
@@ -1695,19 +1685,116 @@ function textBox(position: TextPosition, w: number, h: number) {
   }
 }
 
+/**
+ * Outline of a photo frame inside the photo rectangle r (as a Path2D in texture units).
+ * circle / heart / star / flower use the centred square of the shorter side (the photo is cut, not squashed).
+ */
+export function photoFramePath(frame: PhotoFrame | undefined, r: { x: number; y: number; w: number; h: number }): Path2D {
+  const p = new Path2D();
+  const cx = r.x + r.w / 2;
+  const cy = r.y + r.h / 2;
+  const s = Math.min(r.w, r.h);
+  switch (frame) {
+    case "circle":
+      p.arc(cx, cy, s / 2, 0, Math.PI * 2);
+      break;
+    case "heart": {
+      // unit heart (0…1), slightly wider than tall – centred in the square
+      const x0 = cx - s / 2;
+      const y0 = cy - s / 2 + s * 0.04;
+      const X = (u: number) => x0 + u * s;
+      const Y = (v: number) => y0 + v * s;
+      p.moveTo(X(0.5), Y(0.27));
+      p.bezierCurveTo(X(0.5), Y(0.22), X(0.43), Y(0.08), X(0.26), Y(0.08));
+      p.bezierCurveTo(X(0.03), Y(0.08), X(0.0), Y(0.32), X(0.0), Y(0.36));
+      p.bezierCurveTo(X(0.0), Y(0.56), X(0.2), Y(0.74), X(0.5), Y(0.94));
+      p.bezierCurveTo(X(0.8), Y(0.74), X(1.0), Y(0.56), X(1.0), Y(0.36));
+      p.bezierCurveTo(X(1.0), Y(0.32), X(0.97), Y(0.08), X(0.74), Y(0.08));
+      p.bezierCurveTo(X(0.57), Y(0.08), X(0.5), Y(0.22), X(0.5), Y(0.27));
+      p.closePath();
+      break;
+    }
+    case "star": {
+      // five points with rounded tips (arcTo at every corner)
+      const R = s / 2;
+      const ir = R * 0.5;
+      const oy = cy + R * 0.06; // optical centre
+      const pts: Array<[number, number]> = [];
+      for (let i = 0; i < 10; i++) {
+        const a = -Math.PI / 2 + (i * Math.PI) / 5;
+        const rr = i % 2 ? ir : R;
+        pts.push([cx + Math.cos(a) * rr, oy + Math.sin(a) * rr]);
+      }
+      const mid = (a: [number, number], b: [number, number]): [number, number] => [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+      const start = mid(pts[9], pts[0]);
+      p.moveTo(start[0], start[1]);
+      for (let i = 0; i < 10; i++) {
+        const cur = pts[i];
+        const nxt = mid(cur, pts[(i + 1) % 10]);
+        p.arcTo(cur[0], cur[1], nxt[0], nxt[1], i % 2 ? R * 0.06 : R * 0.12);
+      }
+      p.closePath();
+      break;
+    }
+    case "arch": {
+      const rad = Math.min(r.w / 2, r.h);
+      const br = Math.min(10, rad);
+      p.moveTo(r.x, r.y + rad);
+      p.arc(cx, r.y + rad, rad, Math.PI, 0);
+      p.lineTo(r.x + r.w, r.y + r.h - br);
+      p.arcTo(r.x + r.w, r.y + r.h, r.x + r.w - br, r.y + r.h, br);
+      p.lineTo(r.x + br, r.y + r.h);
+      p.arcTo(r.x, r.y + r.h, r.x, r.y + r.h - br, br);
+      p.closePath();
+      break;
+    }
+    case "flower": {
+      // scalloped edge – ten round petals
+      const R = s / 2;
+      const n = 10;
+      for (let i = 0; i <= 160; i++) {
+        const a = (i / 160) * Math.PI * 2 - Math.PI / 2;
+        const rr = R * (0.8 + 0.2 * Math.abs(Math.cos((a * n) / 2)));
+        const x = cx + Math.cos(a) * rr;
+        const y = cy + Math.sin(a) * rr;
+        if (i) p.lineTo(x, y);
+        else p.moveTo(x, y);
+      }
+      p.closePath();
+      break;
+    }
+    default: {
+      const rr = Math.min(10, r.w / 2, r.h / 2);
+      p.moveTo(r.x + rr, r.y);
+      p.arcTo(r.x + r.w, r.y, r.x + r.w, r.y + r.h, rr);
+      p.arcTo(r.x + r.w, r.y + r.h, r.x, r.y + r.h, rr);
+      p.arcTo(r.x, r.y + r.h, r.x, r.y, rr);
+      p.arcTo(r.x, r.y, r.x + r.w, r.y, rr);
+      p.closePath();
+    }
+  }
+  return p;
+}
+
 function drawPhoto(ctx: CanvasRenderingContext2D, image: CanvasImageSource, cfg: ImageConfig, w: number, h: number) {
   const r = imageRect(cfg, image, w, h);
+  const frame = photoFramePath(cfg.frame, r);
   ctx.save();
-  roundRectPath(ctx, r.x, r.y, r.w, r.h, 10);
-  ctx.clip();
+  ctx.clip(frame);
   ctx.globalAlpha = 0.93;
   ctx.drawImage(image, r.x, r.y, r.w, r.h);
   ctx.restore();
   ctx.save();
-  roundRectPath(ctx, r.x, r.y, r.w, r.h, 10);
+  ctx.lineJoin = "round";
   ctx.strokeStyle = "rgba(90, 50, 15, 0.35)";
   ctx.lineWidth = 3;
-  ctx.stroke();
+  ctx.stroke(frame);
+  if (cfg.frame && cfg.frame !== "rounded") {
+    // a thin gold rim makes the cut-out shape read on any paper
+    ctx.strokeStyle = "rgba(255, 214, 120, 0.55)";
+    ctx.lineWidth = 1.5;
+    ctx.stroke(frame);
+  }
   ctx.restore();
 }
 
@@ -2017,6 +2104,18 @@ export function loadImage(src: string): Promise<HTMLImageElement> {
 
 export type FaceContentHit = "image" | "drawing" | "message";
 
+let hitCtx: CanvasRenderingContext2D | null = null;
+/** is (u, v) inside the photo's frame shape (rounded / circle / heart …) */
+export function insideFrame(cfg: ImageConfig, r: { x: number; y: number; w: number; h: number }, u: number, v: number): boolean {
+  if (!cfg.frame || cfg.frame === "rounded") return true;
+  try {
+    hitCtx ??= makeCanvas(1, 1).getContext("2d");
+    return hitCtx ? hitCtx.isPointInPath(photoFramePath(cfg.frame, r), u, v) : true;
+  } catch {
+    return true;
+  }
+}
+
 const drawingAlpha = new WeakMap<object, { data: Uint8ClampedArray } | null>();
 
 /** Alpha of the drawing layer around (u, v) in texture space – null when pixels cannot be read */
@@ -2074,7 +2173,7 @@ export function hitFaceContent(
   if (drawing && drawingInkNear(drawing, u, v)) return "drawing";
   if (image && imageConfig) {
     const r = imageRect(imageConfig, image, TEX_W, TEX_H);
-    if (u >= r.x && u <= r.x + r.w && v >= r.y && v <= r.y + r.h) return "image";
+    if (u >= r.x && u <= r.x + r.w && v >= r.y && v <= r.y + r.h && insideFrame(imageConfig, r, u, v)) return "image";
   }
   if (face === "front" && visual.wishMessage) {
     const box = textBox(visual.textConfig.position, TEX_W, TEX_H);

@@ -121,3 +121,14 @@
 .no-scrollbar::-webkit-scrollbar {
   display: none;
 }
+
+/* studio card rows (shapes / papers / light colours / pens): a swipe scrolls the row only – never the page */
+.studio-row {
+  touch-action: pan-x;
+  overscroll-behavior-x: contain;
+}
+@media (min-width: 1024px) {
+  .studio-row {
+    touch-action: auto;
+  }
+}

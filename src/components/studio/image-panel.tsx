@@ -3,16 +3,17 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import Cropper, { type Area } from "react-easy-crop";
 import "react-easy-crop/react-easy-crop.css";
-import { Crop, ImagePlus, Loader2, Minus, Move, Plus, Trash2, Upload } from "lucide-react";
+import { Crop, ImagePlus, Loader2, Minus, Move, Plus, Shapes, Trash2, Upload } from "lucide-react";
 import { toast } from "sonner";
-import { FACE_LABEL_TH, type ImageConfig, type LanternFaceId, type LanternVisual } from "@/types/lantern";
-import { buildFaceLayer, ensureLanternFonts, imageRect, loadImage, peekImage, TEX_H, TEX_W } from "@/lib/lantern/texture";
+import { FACE_LABEL_TH, PHOTO_FRAME_LABEL_TH, PHOTO_FRAMES, type ImageConfig, type LanternFaceId, type LanternVisual } from "@/types/lantern";
+import { buildFaceLayer, ensureLanternFonts, imageRect, insideFrame, loadImage, peekImage, TEX_H, TEX_W } from "@/lib/lantern/texture";
 import { cropAndCompress, prepareImageSource, validateImageFile } from "@/lib/image-client";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Slider } from "@/components/ui/slider";
 import { clamp, cn } from "@/lib/utils";
 import { paintPaper } from "./face-paper";
+import { SilhouetteMask } from "./shape-mask";
 
 interface Props {
   /** the whole lantern as it is now (draft visual) */
@@ -37,7 +38,19 @@ const ASPECTS = [
 
 type Pt = { x: number; y: number };
 
-const fit = (c: ImageConfig): ImageConfig => ({ x: clamp(c.x, -0.5, 0.5), y: clamp(c.y, -0.5, 0.5), scale: clamp(c.scale, 0.2, 1) });
+const fit = (c: ImageConfig): ImageConfig => ({
+  x: clamp(c.x, -0.5, 0.5),
+  y: clamp(c.y, -0.5, 0.5),
+  scale: clamp(c.scale, 0.2, 1),
+  ...(c.frame && c.frame !== "rounded" ? { frame: c.frame } : {}),
+});
+const nextFrame = (c: ImageConfig): ImageConfig => {
+  const i = PHOTO_FRAMES.indexOf(c.frame ?? "rounded");
+  return fit({ ...c, frame: PHOTO_FRAMES[(i + 1) % PHOTO_FRAMES.length] });
+};
+/** a tap (not a drag / pinch) cycles the photo frame */
+const TAP_SLOP = 8;
+const TAP_MS = 400;
 
 export function ImagePanel({ visual, face, imageDataUrl, imageConfig, allowed, onImage, onConfig, header }: Props) {
   const inputRef = useRef<HTMLInputElement>(null);
@@ -133,7 +146,7 @@ export function ImagePanel({ visual, face, imageDataUrl, imageConfig, allowed, o
       onImage(out);
       // keep clear of the wish text on the front; centred on the other walls
       const y = face !== "front" ? 0 : visual.textConfig.position === "bottom" ? -0.15 : 0.18;
-      onConfig({ x: 0, y, scale: aspect >= 1 ? 0.6 : 0.45 });
+      onConfig(fit({ x: 0, y, scale: aspect >= 1 ? 0.6 : 0.45, frame: imageConfig.frame }));
       setSource(null);
     } catch (e) {
       toast.error((e as Error).message);
@@ -145,6 +158,8 @@ export function ImagePanel({ visual, face, imageDataUrl, imageConfig, allowed, o
   // ---------- gestures: one finger / mouse drags the photo, two fingers pinch (resize) and move it ----------
   const pointers = useRef(new Map<number, Pt>());
   const gesture = useRef<{ start: Pt; dist: number; cfg: ImageConfig } | null>(null);
+  /** the current touch is still a clean tap: one finger, barely moved, short */
+  const tap = useRef<{ x: number; y: number; t: number; ok: boolean } | null>(null);
   const cfgRef = useRef(imageConfig);
   useEffect(() => {
     cfgRef.current = imageConfig;
@@ -172,23 +187,43 @@ export function ImagePanel({ visual, face, imageDataUrl, imageConfig, allowed, o
     e.preventDefault();
     e.currentTarget.setPointerCapture(e.pointerId);
     pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    tap.current = pointers.current.size === 1 ? { x: e.clientX, y: e.clientY, t: performance.now(), ok: true } : null;
     restart();
   };
 
   const onPointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
     if (!pointers.current.has(e.pointerId) || !gesture.current) return;
     pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    const t = tap.current;
+    if (t && Math.hypot(e.clientX - t.x, e.clientY - t.y) > TAP_SLOP) t.ok = false;
+    // a tap must not nudge the photo – only start moving once it is clearly a drag
+    if (t?.ok && pointers.current.size === 1) return;
     const r = e.currentTarget.getBoundingClientRect();
     const g = gesture.current;
     const c = centre();
     const scale = g.dist && c.dist ? g.cfg.scale * (c.dist / g.dist) : g.cfg.scale;
-    const next = fit({ x: g.cfg.x + (c.x - g.start.x) / r.width, y: g.cfg.y + (c.y - g.start.y) / r.height, scale });
+    const next = fit({ ...g.cfg, x: g.cfg.x + (c.x - g.start.x) / r.width, y: g.cfg.y + (c.y - g.start.y) / r.height, scale });
     cfgRef.current = next;
     onConfig(next);
   };
 
   const endPointer = (e: React.PointerEvent<HTMLCanvasElement>) => {
     if (!pointers.current.delete(e.pointerId)) return;
+    const t = tap.current;
+    tap.current = null;
+    if (e.type === "pointerup" && t?.ok && pointers.current.size === 0 && performance.now() - t.t < TAP_MS && imgRef.current) {
+      // only a tap ON the photo changes its frame
+      const box = e.currentTarget.getBoundingClientRect();
+      const u = ((e.clientX - box.left) / box.width) * TEX_W;
+      const v = ((e.clientY - box.top) / box.height) * TEX_H;
+      const cfg = cfgRef.current;
+      const r = imageRect(cfg, imgRef.current, TEX_W, TEX_H);
+      if (u >= r.x && u <= r.x + r.w && v >= r.y && v <= r.y + r.h && insideFrame(cfg, r, u, v)) {
+        const next = nextFrame(cfg);
+        cfgRef.current = next;
+        onConfig(next);
+      }
+    }
     restart();
   };
 
@@ -284,8 +319,17 @@ export function ImagePanel({ visual, face, imageDataUrl, imageConfig, allowed, o
                 onPointerCancel={endPointer}
                 onContextMenu={(e) => e.preventDefault()}
               />
+              <SilhouetteMask shape={visual.shape} />
+              <button
+                type="button"
+                onClick={() => onConfig(nextFrame(imageConfig))}
+                aria-label={`กรอบรูป: ${PHOTO_FRAME_LABEL_TH[imageConfig.frame ?? "rounded"]} แตะเพื่อเปลี่ยนกรอบ`}
+                className="absolute left-2 top-2 flex items-center gap-1 rounded-full border border-gold/40 bg-night/70 px-2.5 py-1 text-[11px] text-warm backdrop-blur"
+              >
+                <Shapes className="size-3.5 text-gold" /> กรอบ: {PHOTO_FRAME_LABEL_TH[imageConfig.frame ?? "rounded"]}
+              </button>
               <span className="pointer-events-none absolute inset-x-2 bottom-2 flex items-center justify-center gap-1.5 rounded-full bg-night/60 px-2 py-1 text-[11px] text-warm/80 backdrop-blur">
-                <Move className="size-3.5 shrink-0" /> ลากเพื่อย้าย · ถ่าง/หุบสองนิ้วเพื่อย่อขยาย
+                <Move className="size-3.5 shrink-0" /> แตะรูปเพื่อเปลี่ยนกรอบ · ลาก/สองนิ้วเพื่อจัดรูป
               </span>
             </div>
           </div>

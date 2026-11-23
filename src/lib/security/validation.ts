@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { DECORATIONS, EFFECT_IDS, LANTERN_DESIGN_IDS,
-  LANTERN_SHAPE_IDS, LANTERN_FONT_IDS, TEXT_POSITIONS } from "@/types/lantern";
+  LANTERN_SHAPE_IDS, LANTERN_FONT_IDS, PHOTO_FRAMES, TEXT_POSITIONS } from "@/types/lantern";
 import { LIMITS } from "@/lib/lantern/designs";
 import { sanitizeText } from "./sanitize";
 
@@ -28,6 +28,8 @@ export const imageConfigSchema = z.object({
   x: z.number().min(-0.5).max(0.5),
   y: z.number().min(-0.5).max(0.5),
   scale: z.number().min(0.2).max(1),
+  /** photo frame shape – optional, older lanterns have none ("rounded") */
+  frame: z.enum(PHOTO_FRAMES).optional(),
 });
 
 /** Photo and / or drawing on one of the other walls (paths are checked for ownership by assertAssets) */

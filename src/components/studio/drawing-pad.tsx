@@ -8,10 +8,21 @@ import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
 import { clamp, cn } from "@/lib/utils";
 import { paintPaper } from "./face-paper";
+import { SilhouetteMask } from "./shape-mask";
 
 const PEN_COLORS = ["#5b2d0c", "#b4232c", "#e0457b", "#f08c00", "#1b6e3c", "#1b3f8a", "#6b2fa0", "#000000", "#ffffff"];
 const MAX_HISTORY = 30;
 const MAX_ZOOM = 6;
+/** emoji stickers – festival ones first */
+const STICKERS = [
+  "🪷", "🏮", "✨", "🌕", "🎆", "💛", "❤️", "🙏", "🌸", "⭐", "🐇", "🎉",
+  "🌟", "🎇", "🕯️", "🌙", "💖", "💐", "🍀", "🦋", "🐟", "🌈",
+  "😊", "😍", "🥰", "😘", "😂", "🤗", "😇", "🥳", "😎", "🤩", "😺", "👍", "👏", "💪",
+];
+const EMOJI_FONT = '"Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji","Segoe UI Symbol",sans-serif';
+/** sticker size in texture px from the brush slider (2…28) */
+const stickerPx = (size: number) => Math.round(28 + size * 4);
+type Tool = "pen" | "eraser" | "sticker";
 
 interface Props {
   /** The lantern as it is now (the drawing of `face` itself is ignored – it lives on the ink canvas) */
@@ -44,7 +55,8 @@ export function DrawingPad({ visual, face, value, onChange, active = true, heade
   const drawRef = useRef<HTMLCanvasElement>(null);
   const viewportRef = useRef<HTMLDivElement>(null);
   const paperRef = useRef<HTMLDivElement>(null);
-  const [tool, setTool] = useState<"pen" | "eraser">("pen");
+  const [tool, setTool] = useState<Tool>("pen");
+  const [sticker, setSticker] = useState(STICKERS[0]);
   const [color, setColor] = useState(PEN_COLORS[1]);
   const [size, setSize] = useState(8);
   const undoStack = useRef<ImageData[]>([]);
@@ -266,8 +278,18 @@ export function DrawingPad({ visual, face, value, onChange, active = true, heade
     drawing.current = true;
     const { x, y } = pos(e);
     last.current = { x, y, mx: x, my: y };
-    // dot for a single tap
     const g = ctx();
+    if (tool === "sticker") {
+      // stamp the emoji (a second finger takes it back like a stroke – see cancelStroke)
+      g.globalCompositeOperation = "source-over";
+      g.font = `${stickerPx(size)}px ${EMOJI_FONT}`;
+      g.textAlign = "center";
+      g.textBaseline = "middle";
+      g.fillStyle = "#000";
+      g.fillText(sticker, x, y);
+      return;
+    }
+    // dot for a single tap
     g.globalCompositeOperation = tool === "eraser" ? "destination-out" : "source-over";
     g.fillStyle = color;
     g.beginPath();
@@ -288,7 +310,7 @@ export function DrawingPad({ visual, face, value, onChange, active = true, heade
       applyView({ z, x: m.x - z * cx, y: m.y - z * cy });
       return;
     }
-    if (!drawing.current) return;
+    if (!drawing.current || tool === "sticker") return;
     const events = e.nativeEvent.getCoalescedEvents?.() ?? [];
     for (const ev of events.length ? events : [e.nativeEvent]) {
       const { x, y } = pos(ev);
@@ -300,7 +322,7 @@ export function DrawingPad({ visual, face, value, onChange, active = true, heade
     if (!drawing.current) return;
     drawing.current = false;
     last.current = null;
-    if (tool === "pen") hasInk.current = true;
+    if (tool !== "eraser") hasInk.current = true;
     undoStack.current.push(snapshot());
     if (undoStack.current.length > MAX_HISTORY) undoStack.current.shift();
     redoStack.current = [];
@@ -361,10 +383,10 @@ export function DrawingPad({ visual, face, value, onChange, active = true, heade
     <button
       type="button"
       role="radio"
-      aria-checked={tool === id}
+      aria-checked={tool === id || (id === "pen" && tool === "sticker")}
       aria-label={label}
       onClick={() => setTool(id)}
-      className={cn("flex h-8 items-center gap-1.5 rounded-full px-2.5 text-xs", tool === id ? "bg-gold text-night" : "text-warm/70")}
+      className={cn("flex h-8 items-center gap-1.5 rounded-full px-2.5 text-xs", tool === id || (id === "pen" && tool === "sticker") ? "bg-gold text-night" : "text-warm/70")}
     >
       <Icon className="size-4" /> <span className="hidden sm:inline">{label}</span>
     </button>
@@ -418,36 +440,77 @@ export function DrawingPad({ visual, face, value, onChange, active = true, heade
         </div>
       </div>
 
-      {/* pen colours – one scrollable row */}
-      <div className="no-scrollbar -mx-1 flex items-center gap-2 overflow-x-auto px-1 py-0.5 lg:flex-wrap lg:overflow-visible">
-        {PEN_COLORS.map((c) => (
+      {/* pen colours / emoji stickers – one scrollable row */}
+      {tool === "sticker" ? (
+        <div className="no-scrollbar studio-row -mx-1 flex items-center gap-1.5 overflow-x-auto overscroll-x-contain px-1 py-0.5 lg:flex-wrap lg:overflow-visible" role="radiogroup" aria-label="สติกเกอร์อีโมจิ">
           <button
-            key={c}
             type="button"
-            aria-label={`สีปากกา ${c}`}
-            aria-pressed={color === c && tool === "pen"}
-            onClick={() => {
-              setColor(c);
-              setTool("pen");
-            }}
-            className={cn("size-8 shrink-0 rounded-full border-2 transition", color === c && tool === "pen" ? "scale-110 border-gold" : "border-white/20")}
-            style={{ background: c }}
-          />
-        ))}
-        <label className="relative grid size-8 shrink-0 cursor-pointer place-items-center rounded-full border-2 border-dashed border-white/30 text-xs text-warm/60">
-          +
-          <input
-            type="color"
-            aria-label="เลือกสีปากกา"
-            value={color}
-            onChange={(e) => {
-              setColor(e.target.value);
-              setTool("pen");
-            }}
-            className="absolute inset-0 cursor-pointer opacity-0"
-          />
-        </label>
-      </div>
+            onClick={() => setTool("pen")}
+            aria-label="กลับไปใช้ปากกา"
+            className="flex h-8 shrink-0 items-center gap-1 rounded-full border border-white/15 bg-white/5 px-2.5 text-xs text-warm/80"
+          >
+            <Brush className="size-4" /> สี
+          </button>
+          {STICKERS.map((em) => (
+            <button
+              key={em}
+              type="button"
+              role="radio"
+              aria-checked={sticker === em}
+              aria-label={`สติกเกอร์ ${em}`}
+              onClick={() => setSticker(em)}
+              className={cn(
+                "grid size-9 shrink-0 place-items-center rounded-xl border text-xl leading-none transition",
+                sticker === em ? "scale-110 border-gold bg-gold/15 shadow-[0_0_14px_-4px_rgba(245,185,66,0.9)]" : "border-white/10 bg-white/[0.03]",
+              )}
+              style={{ fontFamily: EMOJI_FONT }}
+            >
+              {em}
+            </button>
+          ))}
+        </div>
+      ) : (
+        <div className="no-scrollbar studio-row -mx-1 flex items-center gap-2 overflow-x-auto overscroll-x-contain px-1 py-0.5 lg:flex-wrap lg:overflow-visible">
+          <button
+            type="button"
+            onClick={() => setTool("sticker")}
+            aria-label="สติกเกอร์อีโมจิ"
+            className="flex h-8 shrink-0 items-center gap-1 rounded-full border border-gold/40 bg-gold/10 px-2.5 text-xs text-warm"
+          >
+            <span className="text-base leading-none" style={{ fontFamily: EMOJI_FONT }} aria-hidden>
+              🪷
+            </span>
+            สติกเกอร์
+          </button>
+          {PEN_COLORS.map((c) => (
+            <button
+              key={c}
+              type="button"
+              aria-label={`สีปากกา ${c}`}
+              aria-pressed={color === c && tool === "pen"}
+              onClick={() => {
+                setColor(c);
+                setTool("pen");
+              }}
+              className={cn("size-8 shrink-0 rounded-full border-2 transition", color === c && tool === "pen" ? "scale-110 border-gold" : "border-white/20")}
+              style={{ background: c }}
+            />
+          ))}
+          <label className="relative grid size-8 shrink-0 cursor-pointer place-items-center rounded-full border-2 border-dashed border-white/30 text-xs text-warm/60">
+            +
+            <input
+              type="color"
+              aria-label="เลือกสีปากกา"
+              value={color}
+              onChange={(e) => {
+                setColor(e.target.value);
+                setTool("pen");
+              }}
+              className="absolute inset-0 cursor-pointer opacity-0"
+            />
+          </label>
+        </div>
+      )}
 
       {/* paper – sized to the space that is left (container query), fixed width on desktop */}
       <div className={cn("min-h-0 flex-1 [container-type:size]", !full && "lg:flex-none lg:[container-type:normal]")}>
@@ -457,7 +520,7 @@ export function DrawingPad({ visual, face, value, onChange, active = true, heade
             "relative mx-auto touch-none select-none overflow-hidden rounded-xl border border-gold/30 shadow-[0_0_40px_-10px_rgba(245,185,66,0.6)]",
             "w-[min(100cqw,calc(100cqh*0.909))]",
             !full && "lg:w-full lg:max-w-sm",
-            tool === "eraser" ? "cursor-cell" : "cursor-crosshair",
+            tool === "eraser" ? "cursor-cell" : tool === "sticker" ? "cursor-copy" : "cursor-crosshair",
           )}
           style={{ aspectRatio: `${TEX_W} / ${TEX_H}`, WebkitTouchCallout: "none" }}
           onPointerDown={onPointerDown}
@@ -476,6 +539,7 @@ export function DrawingPad({ visual, face, value, onChange, active = true, heade
               aria-label={`พื้นที่วาดภาพบน${FACE_LABEL_TH[face]}ของโคม`}
               className="absolute inset-0 h-full w-full outline-none"
             />
+            <SilhouetteMask shape={visual.shape} />
           </div>
           {/* zoom badge */}
           <div className="absolute right-1.5 top-1.5 flex items-center gap-0.5 rounded-full bg-night/65 p-0.5 text-warm/85 backdrop-blur" onPointerDown={(e) => e.stopPropagation()}>
@@ -492,7 +556,7 @@ export function DrawingPad({ visual, face, value, onChange, active = true, heade
         </div>
       </div>
       <p className="text-center text-[11px] text-warm/45">
-        นิ้วเดียววาด · สองนิ้วถ่าง/หุบเพื่อซูมและเลื่อนกระดาษ<span className="hidden lg:inline"> · Ctrl+Z เพื่อย้อนกลับ</span>
+        {tool === "sticker" ? `แตะบนกระดาษเพื่อแปะ ${sticker} · ขนาดตามแถบเลื่อน` : "นิ้วเดียววาด · สองนิ้วถ่าง/หุบเพื่อซูมและเลื่อนกระดาษ"}<span className="hidden lg:inline"> · Ctrl+Z เพื่อย้อนกลับ</span>
       </p>
     </div>
   );

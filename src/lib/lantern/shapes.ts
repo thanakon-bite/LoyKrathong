@@ -170,6 +170,35 @@ export function panelToTexture(s: ShapeDef, lx: number, y: number): [number, num
   return [((lx - (r.cx - r.w / 2)) / r.w) * TEX_W, ((r.cy + r.h / 2 - y) / r.h) * TEX_H];
 }
 
+/**
+ * The silhouette outline in face-texture coordinates (0…TEX_W, 0…TEX_H, y down) as an SVG path –
+ * exactly where the face texture lands on the panel (same mapping as bakePanel / panelToTexture).
+ * Parts of the silhouette outside the texture (ears, lobes) fall outside 0…TEX_W / 0…TEX_H.
+ */
+const texturePaths = new Map<ShapedId, { d: string; box: { x: number; y: number; w: number; h: number } }>();
+export function silhouetteTexturePath(id: ShapedId): { d: string; box: { x: number; y: number; w: number; h: number } } {
+  const hit = texturePaths.get(id);
+  if (hit) return hit;
+  const s = SHAPES[id];
+  const pts = s.fine;
+  let d = "";
+  let x0 = Infinity;
+  let y0 = Infinity;
+  let x1 = -Infinity;
+  let y1 = -Infinity;
+  for (let i = 0; i < pts.length; i += 2) {
+    const [u, v] = panelToTexture(s, pts[i], pts[i + 1]);
+    d += `${i ? "L" : "M"}${u.toFixed(1)} ${v.toFixed(1)}`;
+    x0 = Math.min(x0, u);
+    x1 = Math.max(x1, u);
+    y0 = Math.min(y0, v);
+    y1 = Math.max(y1, v);
+  }
+  const out = { d: d + "Z", box: { x: x0, y: y0, w: x1 - x0, h: y1 - y0 } };
+  texturePaths.set(id, out);
+  return out;
+}
+
 // ---------------------------------------------------------------------------------------------
 // Baked panels (paper + ink + decoration, fully lit) – same idea as the cube's bakedFace
 // ---------------------------------------------------------------------------------------------

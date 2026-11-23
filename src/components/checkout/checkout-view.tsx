@@ -11,14 +11,14 @@ import { apiFetch, ClientApiError } from "@/lib/api-client";
 import { dataUrlToBlob } from "@/lib/image-client";
 import { uploadLanternAsset } from "@/lib/upload-client";
 import { LANTERN_SHAPES, LANTERN_DESIGNS } from "@/lib/lantern/designs";
-import { cn, formatTHB, hashString } from "@/lib/utils";
+import { formatTHB, hashString } from "@/lib/utils";
 import { useCatalog } from "@/hooks/use-catalog";
 import { PricingError, quote, totalProblem } from "@/lib/pricing";
 import { EFFECT_META } from "@/lib/lantern/effects-meta";
-import { Input } from "@/components/ui/input";
 import type { Quote } from "@/types/catalog";
 import { EXTRA_FACE_IDS, facesForShape, type ExtraFaceId, type PublicLantern } from "@/types/lantern";
 import { LanternPreview } from "@/components/lantern/lantern-preview";
+import { OfferingPicker } from "@/components/studio/offering-picker";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -92,7 +92,6 @@ export function CheckoutView() {
   const { draft, update, reset, renewRequestId } = useLanternDraft();
   const { ensureSession, configured } = useAuth();
   const { catalog } = useCatalog();
-  const [custom, setCustom] = useState("");
   const [step, setStep] = useState<Step>("idle");
   const [error, setError] = useState<string | null>(null);
 
@@ -219,56 +218,7 @@ export function CheckoutView() {
               <Coins className="size-5 text-gold" /> ใส่เงินลงกระทง <span className="text-xs font-normal text-warm/50">(ไม่บังคับ)</span>
             </h2>
             <p className="mt-1 text-xs text-warm/55">ยอดเงินจะแสดงเด่นบนหัวโคมของคุณในเทศกาล</p>
-            {!o ? (
-              <Skeleton className="mt-3 h-10" />
-            ) : (
-              <div className="mt-3 flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  disabled={busy}
-                  onClick={() => {
-                    setCustom("");
-                    setOffering(0);
-                  }}
-                  className={cn("rounded-full border px-3.5 py-1.5 text-sm transition", offering === 0 ? "border-gold bg-gold/15 text-warm" : "border-white/10 text-warm/60 hover:border-gold/40")}
-                >
-                  ไม่ใส่
-                </button>
-                {o.presets.map((v) => (
-                  <button
-                    key={v}
-                    type="button"
-                    disabled={busy}
-                    onClick={() => {
-                      setCustom("");
-                      setOffering(v);
-                    }}
-                    className={cn(
-                      "rounded-full border px-3.5 py-1.5 text-sm font-medium transition",
-                      offering === v && !custom ? "border-gold bg-gold text-night" : "border-gold/30 text-gold hover:bg-gold/10",
-                    )}
-                  >
-                    ฿{v.toLocaleString("th-TH")}
-                  </button>
-                ))}
-                <div className="relative w-32">
-                  <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-warm/50">฿</span>
-                  <Input
-                    inputMode="decimal"
-                    aria-label="ใส่จำนวนเงินเอง"
-                    placeholder="ใส่เอง"
-                    className="h-9 rounded-full pl-7 text-sm"
-                    disabled={busy}
-                    value={custom}
-                    onChange={(e) => {
-                      const raw = e.target.value.replace(/[^0-9.]/g, "").slice(0, 8);
-                      setCustom(raw);
-                      setOffering(Number(raw) || 0);
-                    }}
-                  />
-                </div>
-              </div>
-            )}
+            <OfferingPicker settings={o} value={offering} onChange={setOffering} disabled={busy} className="mt-3" />
           </section>
         )}
 

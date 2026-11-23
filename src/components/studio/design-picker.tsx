@@ -6,6 +6,7 @@ import { LANTERN_DESIGN_IDS, LANTERN_SHAPE_IDS, type LanternDesignId, type Lante
 import { Label } from "@/components/ui/label";
 import { cn, mixHex } from "@/lib/utils";
 import { priceLabel } from "@/hooks/use-catalog";
+import { ShapedPaperSwatch } from "./shape-mask";
 import type { CatalogItem } from "@/types/catalog";
 
 interface Props {
@@ -66,7 +67,7 @@ export function DesignPicker({ design, shape, color, onDesign, onShape, onColor,
   return (
     // phones: everything fits the panel – shapes in one row, papers and light colours as swipeable rows
     <div className="space-y-3 lg:space-y-6">
-      <fieldset>
+      <fieldset className="min-w-0">
         <legend className="mb-1.5 text-xs font-medium text-warm/85 lg:mb-3 lg:text-sm">รูปทรงกระทง</legend>
         <div className="grid grid-cols-4 gap-2 sm:gap-3">
           {LANTERN_SHAPE_IDS.map((id) => {
@@ -104,9 +105,9 @@ export function DesignPicker({ design, shape, color, onDesign, onShape, onColor,
         </div>
       </fieldset>
 
-      <fieldset>
+      <fieldset className="min-w-0">
         <legend className="mb-1.5 text-xs font-medium text-warm/85 lg:mb-3 lg:text-sm">ลายกระดาษ</legend>
-        <div className="no-scrollbar -mx-3 flex snap-x snap-mandatory scroll-px-3 gap-2 overflow-x-auto px-3 pb-1 lg:mx-0 lg:grid lg:grid-cols-4 lg:gap-3 lg:overflow-visible lg:px-0 lg:pb-0">
+        <div className="no-scrollbar studio-row -mx-3 flex snap-x snap-mandatory scroll-px-3 gap-2 overflow-x-auto overscroll-x-contain px-3 pb-1 lg:mx-0 lg:grid lg:grid-cols-4 lg:gap-3 lg:overflow-visible lg:px-0 lg:pb-0">
           {LANTERN_DESIGN_IDS.map((id) => {
             const d = LANTERN_DESIGNS[id];
             const item = prices?.find((p) => p.code === id);
@@ -125,11 +126,12 @@ export function DesignPicker({ design, shape, color, onDesign, onShape, onColor,
                   active ? "border-gold bg-gold/10 shadow-[0_0_24px_-8px_rgba(245,185,66,0.8)]" : "border-white/10 bg-white/[0.03] hover:border-gold/40",
                 )}
               >
-                <div
-                  className="mx-auto mb-1 h-9 w-8 rounded-[6px] lg:mb-3 lg:h-16 lg:w-14 shadow-[0_0_24px_-4px_rgba(245,185,66,0.6)] transition group-hover:-translate-y-0.5"
-                  style={{
-                    background: `radial-gradient(ellipse at 50% 100%, ${mixHex(d.paperLit, "#ffffff", 0.3)} 0%, ${mixHex(d.paperLit, d.defaultLight, 0.45)} 45%, ${mixHex(d.paper, "#3a1c06", 0.25)} 100%)`,
-                  }}
+                <ShapedPaperSwatch
+                  shape={shape}
+                  inner={mixHex(d.paperLit, "#ffffff", 0.3)}
+                  mid={mixHex(d.paperLit, d.defaultLight, 0.45)}
+                  outer={mixHex(d.paper, "#3a1c06", 0.25)}
+                  className="mx-auto mb-1 h-9 w-9 drop-shadow-[0_0_10px_rgba(245,185,66,0.55)] transition group-hover:-translate-y-0.5 lg:mb-3 lg:h-16 lg:w-16"
                 />
                 <p className="truncate text-xs font-medium text-warm lg:text-sm">{d.nameTh}</p>
                 <p className="hidden text-xs text-warm/50 lg:block">{d.name}</p>
@@ -155,7 +157,7 @@ export function DesignPicker({ design, shape, color, onDesign, onShape, onColor,
           <Label className="text-xs lg:text-sm">สีแสงไฟ</Label>
           <span className="truncate text-xs text-warm/55">{preset?.label ?? `สีที่เลือกเอง ${color.toUpperCase()}`}</span>
         </div>
-        <div className="no-scrollbar -mx-3 flex gap-1.5 overflow-x-auto px-3 lg:mx-0 lg:flex-wrap lg:gap-2.5 lg:overflow-visible lg:px-0">
+        <div className="no-scrollbar studio-row -mx-3 flex gap-1.5 overflow-x-auto overscroll-x-contain px-3 lg:mx-0 lg:flex-wrap lg:gap-2.5 lg:overflow-visible lg:px-0">
           {LIGHT_COLORS.map((c) => {
             const on = color.toUpperCase() === c.value.toUpperCase();
             return (
