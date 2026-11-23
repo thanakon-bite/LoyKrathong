@@ -3,22 +3,37 @@
 import { useEffect, useRef } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { ChevronLeft, ChevronRight, Heart, X } from "lucide-react";
-import type { LanternVisual } from "@/types/lantern";
+import { FACE_LABEL_TH, facesForShape, type LanternFaceId, type LanternVisual } from "@/types/lantern";
 import { cn, hashString } from "@/lib/utils";
 
-export type KeepsakeKind = "image" | "drawing" | "message";
+/** Drawings are not popped out any more – they are already readable on the lantern itself */
+export type KeepsakeKind = "image" | "message";
 
 export interface Keepsake {
   kind: KeepsakeKind;
+  /** unique per item (a lantern can carry a photo on several walls) */
+  key: string;
   label: string;
+  /** photo URL (kind "image") */
+  src?: string;
+  face?: LanternFaceId;
 }
 
-/** What a lantern carries, in the order a visitor browses it */
+/** What a lantern carries, in the order a visitor browses it: the photo of every wall, then the text */
 export function lanternKeepsakes(v: LanternVisual): Keepsake[] {
-  const list: Keepsake[] = [];
-  if (v.imageSrc) list.push({ kind: "image", label: "รูปภาพ" });
-  if (v.drawingSrc) list.push({ kind: "drawing", label: "สติกเกอร์ที่วาด" });
-  if (v.wishMessage || v.blessingMessage || v.extraMessage) list.push({ kind: "message", label: "ข้อความ" });
+  const photos: Array<{ face: LanternFaceId; src: string }> = [];
+  for (const face of facesForShape(v.shape)) {
+    const src = face === "front" ? v.imageSrc : v.faces?.[face]?.imageSrc;
+    if (src) photos.push({ face, src });
+  }
+  const list: Keepsake[] = photos.map((p) => ({
+    kind: "image",
+    key: `image-${p.face}`,
+    label: photos.length > 1 ? `รูป${FACE_LABEL_TH[p.face]}` : "รูปภาพ",
+    src: p.src,
+    face: p.face,
+  }));
+  if (v.wishMessage || v.blessingMessage || v.extraMessage) list.push({ kind: "message", key: "message", label: "ข้อความ" });
   return list;
 }
 
@@ -43,29 +58,6 @@ export function PolaroidPhoto({ src, alt, caption, className, rotate = 0, size =
         <figcaption className={cn("absolute inset-x-0 truncate px-4 text-center font-hand text-[#3b2a1c]", lg ? "bottom-4 text-2xl sm:bottom-6" : "bottom-1 text-[11px]")}>{caption}</figcaption>
       )}
     </figure>
-  );
-}
-
-/* ---------------------------------------------------------------- sticker */
-
-/** Hand-drawn layer shown as a die-cut vinyl sticker (white outline + soft shadow) */
-export function DrawnSticker({ src, alt, className, rotate = 0, size = "lg" }: { src: string; alt: string; className?: string; rotate?: number; size?: "sm" | "lg" }) {
-  const o = size === "lg" ? 4 : 2;
-  const outline = [
-    `drop-shadow(${o}px 0 0 #fff)`,
-    `drop-shadow(-${o}px 0 0 #fff)`,
-    `drop-shadow(0 ${o}px 0 #fff)`,
-    `drop-shadow(0 -${o}px 0 #fff)`,
-    `drop-shadow(0 ${o * 4}px ${o * 5}px rgba(0,0,0,0.55))`,
-  ].join(" ");
-  return (
-    <div className={cn("relative", className)} style={{ transform: `rotate(${rotate}deg)` }}>
-      {/* eslint-disable-next-line @next/next/no-img-element -- short-lived signed / blob URL */}
-      <img src={src} alt={alt} draggable={false} className={cn("block object-contain", size === "lg" ? "max-h-[62dvh] w-[min(84vw,460px)]" : "aspect-square w-full")} style={{ filter: outline }} />
-      {size === "lg" && (
-        <span aria-hidden className="pointer-events-none absolute inset-0 bg-[linear-gradient(115deg,transparent_35%,rgba(255,255,255,0.22)_48%,transparent_60%)] mix-blend-screen" />
-      )}
-    </div>
   );
 }
 
@@ -110,8 +102,7 @@ interface ViewerProps {
 }
 
 /**
- * Full-screen keepsake view: the tapped photo pops up as a polaroid, the drawing as a sticker
- * and the text as a hand-written note – floating gently above the dimmed scene. Not a modal dialog:
+ * Full-screen keepsake view: the tapped photo pops up as a polaroid and the text as a hand-written note – floating gently above the dimmed scene. Not a modal dialog:
  * tap anywhere to put it back, swipe or use the arrows to browse.
  */
 export function KeepsakeViewer({ visual, items, index, onIndex, contained }: ViewerProps) {
@@ -132,7 +123,7 @@ export function KeepsakeViewer({ visual, items, index, onIndex, contained }: Vie
     return () => window.removeEventListener("keydown", onKey);
   }, [index, items.length, many, onIndex]);
 
-  const seed = `${visual.displayName}${item?.kind ?? ""}`;
+  const seed = `${visual.displayName}${item?.key ?? ""}`;
 
   return (
     <AnimatePresence>
@@ -152,7 +143,7 @@ export function KeepsakeViewer({ visual, items, index, onIndex, contained }: Vie
 
           <AnimatePresence mode="popLayout" initial>
             <motion.div
-              key={item.kind}
+              key={item.key}
               initial={{ opacity: 0, scale: 0.4, y: 160, rotate: -12 }}
               animate={{ opacity: 1, scale: 1, y: 0, rotate: 0 }}
               exit={{ opacity: 0, scale: 0.6, y: 80 }}
@@ -169,11 +160,8 @@ export function KeepsakeViewer({ visual, items, index, onIndex, contained }: Vie
             >
               {/* idle float, like it is still drifting on the water */}
               <motion.div animate={{ y: [0, -10, 0], rotate: [0, 0.8, 0] }} transition={{ duration: 5, repeat: Infinity, ease: "easeInOut" }}>
-                {item.kind === "image" && visual.imageSrc && (
-                  <PolaroidPhoto src={visual.imageSrc} alt={`รูปภาพจาก ${visual.displayName}`} caption={visual.displayName} rotate={tilt(seed, 3)} />
-                )}
-                {item.kind === "drawing" && visual.drawingSrc && (
-                  <DrawnSticker src={visual.drawingSrc} alt={`สติกเกอร์ที่ ${visual.displayName} วาด`} rotate={tilt(seed, 4)} />
+                {item.kind === "image" && item.src && (
+                  <PolaroidPhoto src={item.src} alt={`${item.label}จาก ${visual.displayName}`} caption={visual.displayName} rotate={tilt(seed, 3)} />
                 )}
                 {item.kind === "message" && <WishNote visual={visual} rotate={tilt(seed, 2)} />}
               </motion.div>
@@ -197,7 +185,7 @@ export function KeepsakeViewer({ visual, items, index, onIndex, contained }: Vie
               </button>
               {items.map((it, i) => (
                 <button
-                  key={it.kind}
+                  key={it.key}
                   type="button"
                   onClick={() => onIndex(i)}
                   aria-current={i === index}

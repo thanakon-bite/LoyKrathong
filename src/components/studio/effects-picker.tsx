@@ -19,9 +19,16 @@ export function EffectsPicker({ items, value, onChange }: Props) {
   const total = (items ?? []).filter((i) => value.includes(i.code as EffectId)).reduce((s, i) => s + i.price, 0);
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-2 lg:space-y-3">
       <div className="flex items-baseline justify-between gap-2">
-        <p className="text-sm font-medium text-warm/85">เอฟเฟกต์ (เลือกได้หลายอัน)</p>
+        <p className="text-xs font-medium text-warm/85 lg:text-sm">
+          เอฟเฟกต์ (เลือกได้หลายอัน)
+          {value.length > 0 && (
+            <span className="ml-1.5 font-normal text-warm/60 lg:hidden">
+              · {value.length} อย่าง <span className="text-gold">฿{total.toLocaleString("th-TH")}</span>
+            </span>
+          )}
+        </p>
         {value.length > 0 && (
           <button type="button" className="text-xs text-warm/50 underline" onClick={() => onChange([])}>
             ล้าง
@@ -29,7 +36,7 @@ export function EffectsPicker({ items, value, onChange }: Props) {
         )}
       </div>
       <div className="grid grid-cols-3 gap-2 sm:gap-3">
-        {!items && [...Array(9)].map((_, i) => <Skeleton key={i} className="h-24 rounded-2xl" />)}
+        {!items && [...Array(9)].map((_, i) => <Skeleton key={i} className="h-[4.5rem] rounded-2xl lg:h-24" />)}
         {items?.map((it) => {
           if (!isEffectId(it.code)) return null;
           const id = it.code;
@@ -43,14 +50,14 @@ export function EffectsPicker({ items, value, onChange }: Props) {
               onClick={() => toggle(id)}
               title={meta.hint}
               className={cn(
-                "relative flex flex-col items-center gap-1 rounded-2xl border px-1.5 py-3 text-center transition",
+                "relative flex flex-col items-center gap-0.5 rounded-2xl border px-1.5 py-2 text-center transition lg:gap-1 lg:py-3",
                 on ? "border-gold bg-gold/12 shadow-[0_0_24px_-8px_rgba(245,185,66,0.8)]" : "border-white/10 bg-white/[0.03] hover:border-gold/40",
               )}
             >
-              <span className="text-2xl leading-none" aria-hidden>
+              <span className="text-xl leading-none lg:text-2xl" aria-hidden>
                 {meta.emoji}
               </span>
-              <span className="text-xs font-medium text-warm sm:text-sm">{it.name || meta.nameTh}</span>
+              <span className="line-clamp-1 text-xs font-medium text-warm lg:text-sm">{it.name || meta.nameTh}</span>
               <span className={cn("text-[11px] font-semibold", on ? "text-gold" : "text-warm/55")}>{priceLabel(it.price)}</span>
               {on && <Check className="absolute right-1.5 top-1.5 size-3.5 text-gold" />}
             </button>
@@ -58,7 +65,7 @@ export function EffectsPicker({ items, value, onChange }: Props) {
         })}
       </div>
       {value.length > 0 && (
-        <p className="text-right text-xs text-warm/60">
+        <p className="hidden text-right text-xs text-warm/60 lg:block">
           เลือกแล้ว {value.length} อย่าง · <span className="text-gold">฿{total.toLocaleString("th-TH")}</span>
         </p>
       )}

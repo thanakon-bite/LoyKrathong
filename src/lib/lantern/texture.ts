@@ -1,4 +1,4 @@
-import type { LanternDesignId, LanternVisual, TextPosition } from "@/types/lantern";
+import { EXTRA_FACE_IDS, facesForShape, type ExtraFaceId, type FaceArt, type ImageConfig, type LanternDesignId, type LanternFaceId, type LanternVisual, type TextPosition } from "@/types/lantern";
 import { mixHex, rgba, seededRandom } from "@/lib/utils";
 import { LANTERN_DESIGNS, LANTERN_FONTS, type LanternPattern } from "./designs";
 
@@ -9,12 +9,18 @@ export const TEX_H = Math.round(TEX_W * FACE_ASPECT);
 
 export interface FaceTextures {
   front: HTMLCanvasElement;
+  /** blessing / extra text – every side wall without art of its own */
   side: HTMLCanvasElement;
+  /** walls with their own photo / drawing (see artFaces) */
+  faces?: Partial<Record<ExtraFaceId, HTMLCanvasElement>>;
 }
 
 export interface FaceAssets {
+  /** front photo / drawing */
   image?: CanvasImageSource | null;
   drawing?: CanvasImageSource | null;
+  /** already loaded art of the other walls – left out, it comes from (or is fetched into) the image cache */
+  faces?: Partial<Record<ExtraFaceId, { image?: CanvasImageSource | null; drawing?: CanvasImageSource | null }>>;
 }
 
 function makeCanvas(w: number, h: number) {
@@ -1689,55 +1695,50 @@ function textBox(position: TextPosition, w: number, h: number) {
   }
 }
 
-/** Renders the ink layer (everything printed on the paper) for the front and side faces. */
-export function buildFaceTextures(
-  visual: LanternVisual,
-  assets: FaceAssets,
-  options: { target?: FaceTextures | null; resolution?: number } = {},
-): FaceTextures {
-  const w = TEX_W;
-  const h = TEX_H;
-  const res = options.resolution ?? 1;
-  const pw = Math.round(w * res);
-  const ph = Math.round(h * res);
-  const front = options.target?.front ?? makeCanvas(pw, ph);
-  const side = options.target?.side ?? makeCanvas(pw, ph);
-  for (const c of [front, side]) {
-    if (c.width !== pw || c.height !== ph) {
-      c.width = pw;
-      c.height = ph;
-    }
-  }
-  const tc = visual.textConfig;
+function drawPhoto(ctx: CanvasRenderingContext2D, image: CanvasImageSource, cfg: ImageConfig, w: number, h: number) {
+  const r = imageRect(cfg, image, w, h);
+  ctx.save();
+  roundRectPath(ctx, r.x, r.y, r.w, r.h, 10);
+  ctx.clip();
+  ctx.globalAlpha = 0.93;
+  ctx.drawImage(image, r.x, r.y, r.w, r.h);
+  ctx.restore();
+  ctx.save();
+  roundRectPath(ctx, r.x, r.y, r.w, r.h, 10);
+  ctx.strokeStyle = "rgba(90, 50, 15, 0.35)";
+  ctx.lineWidth = 3;
+  ctx.stroke();
+  ctx.restore();
+}
 
-  // ---------- FRONT ----------
-  let ctx = front.getContext("2d")!;
+/** Clears a face canvas and returns its context scaled to texture units */
+function beginFace(canvas: HTMLCanvasElement, res: number, pw: number, ph: number) {
+  if (canvas.width !== pw || canvas.height !== ph) {
+    canvas.width = pw;
+    canvas.height = ph;
+  }
+  const ctx = canvas.getContext("2d")!;
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.clearRect(0, 0, pw, ph);
   ctx.setTransform(res, 0, 0, res, 0, 0);
+  ctx.globalAlpha = 1;
   ctx.textAlign = "center";
   ctx.textBaseline = "top";
+  return ctx;
+}
 
+type Stamped = HTMLCanvasElement & { __v?: number; __build?: number };
+/** version stamp lets the renderer know its baked copy is stale (canvases are pooled & reused) */
+const stamp = (c: HTMLCanvasElement) => {
+  (c as Stamped).__v = ((c as Stamped).__v ?? 0) + 1;
+};
+
+function paintFront(ctx: CanvasRenderingContext2D, visual: LanternVisual, assets: FaceAssets, w: number, h: number, pw: number, ph: number) {
+  const tc = visual.textConfig;
   drawPattern(ctx, visual.design, "front", w, h, pw, ph);
-  const thaiFrame = visual.effects?.includes("thai-frame");
-  if (thaiFrame) drawThaiFrame(ctx, w, h);
+  if (visual.effects?.includes("thai-frame")) drawThaiFrame(ctx, w, h);
 
-  if (assets.image && visual.imageConfig) {
-    const r = imageRect(visual.imageConfig, assets.image, w, h);
-    ctx.save();
-    roundRectPath(ctx, r.x, r.y, r.w, r.h, 10);
-    ctx.clip();
-    ctx.globalAlpha = 0.93;
-    ctx.drawImage(assets.image, r.x, r.y, r.w, r.h);
-    ctx.restore();
-    ctx.save();
-    roundRectPath(ctx, r.x, r.y, r.w, r.h, 10);
-    ctx.strokeStyle = "rgba(90, 50, 15, 0.35)";
-    ctx.lineWidth = 3;
-    ctx.stroke();
-    ctx.restore();
-  }
-
+  if (assets.image && visual.imageConfig) drawPhoto(ctx, assets.image, visual.imageConfig, w, h);
   if (assets.drawing) ctx.drawImage(assets.drawing, 0, 0, w, h);
 
   if (visual.wishMessage) {
@@ -1785,17 +1786,12 @@ export function buildFaceTextures(
     ctx.globalAlpha = 1;
     ctx.textAlign = "center";
   }
+}
 
-  // ---------- SIDE ----------
-  ctx = side.getContext("2d")!;
-  ctx.setTransform(1, 0, 0, 1, 0, 0);
-  ctx.clearRect(0, 0, pw, ph);
-  ctx.setTransform(res, 0, 0, res, 0, 0);
+/** Blessing (with heart bullets) + short extra line – the writing on the side walls */
+function paintSideText(ctx: CanvasRenderingContext2D, visual: LanternVisual, w: number, h: number) {
+  const tc = visual.textConfig;
   ctx.textAlign = "left";
-  ctx.textBaseline = "top";
-  drawPattern(ctx, visual.design, "side", w, h, pw, ph);
-  if (thaiFrame) drawThaiFrame(ctx, w, h);
-
   const sideTop = h * 0.1;
   let sideBottom = h * 0.9;
   if (visual.extraMessage) {
@@ -1829,10 +1825,144 @@ export function buildFaceTextures(
       ctx.fillText(line, w * 0.15, y);
     });
   }
+}
 
-  // version stamp lets the renderer know its baked copy is stale (canvases are pooled & reused)
-  for (const c of [front, side] as Array<HTMLCanvasElement & { __v?: number }>) c.__v = (c.__v ?? 0) + 1;
-  return { front, side };
+function paintSide(ctx: CanvasRenderingContext2D, visual: LanternVisual, w: number, h: number, pw: number, ph: number) {
+  ctx.textAlign = "left";
+  drawPattern(ctx, visual.design, "side", w, h, pw, ph);
+  if (visual.effects?.includes("thai-frame")) drawThaiFrame(ctx, w, h);
+  paintSideText(ctx, visual, w, h);
+}
+
+/**
+ * A wall with its own photo / drawing. The blessing text is printed underneath only when no other
+ * side wall is left to carry it (see textUnderArt) – otherwise the art gets the whole paper.
+ */
+function paintArtFace(
+  ctx: CanvasRenderingContext2D,
+  visual: LanternVisual,
+  art: FaceArt,
+  assets: { image?: CanvasImageSource | null; drawing?: CanvasImageSource | null },
+  withText: boolean,
+  w: number,
+  h: number,
+  pw: number,
+  ph: number,
+) {
+  drawPattern(ctx, visual.design, withText ? "side" : "front", w, h, pw, ph);
+  if (visual.effects?.includes("thai-frame")) drawThaiFrame(ctx, w, h);
+  if (withText) paintSideText(ctx, visual, w, h);
+  if (assets.image && art.imageConfig) drawPhoto(ctx, assets.image, art.imageConfig, w, h);
+  if (assets.drawing) ctx.drawImage(assets.drawing, 0, 0, w, h);
+}
+
+/* ------------------------------------------------------------------ face ↔ texture mapping */
+
+export const hasFaceArt = (a: FaceArt | null | undefined): a is FaceArt => !!a && !!(a.imageSrc || a.drawingSrc);
+
+/** Side walls of this lantern that carry their own photo / drawing (only walls its shape has) */
+export function artFaces(visual: Pick<LanternVisual, "shape" | "faces">): ExtraFaceId[] {
+  const walls = facesForShape(visual.shape);
+  return EXTRA_FACE_IDS.filter((f) => walls.includes(f) && hasFaceArt(visual.faces?.[f]));
+}
+
+/** True when every side wall carries art – the blessing text is then printed under the art so it never disappears */
+export function textUnderArt(visual: Pick<LanternVisual, "shape" | "faces">): boolean {
+  const sides = facesForShape(visual.shape).filter((f): f is ExtraFaceId => f !== "front");
+  return sides.length > 0 && sides.every((f) => hasFaceArt(visual.faces?.[f]));
+}
+
+/** Which texture a wall shows: the front texture, its own art texture, or the shared side (blessing) texture */
+export function faceTextureKey(visual: Pick<LanternVisual, "shape" | "faces">, face: LanternFaceId): "front" | "side" | ExtraFaceId {
+  if (face === "front") return "front";
+  return artFaces(visual).includes(face) ? face : "side";
+}
+
+/** The canvas drawLantern maps onto a wall */
+export function textureForFace(textures: FaceTextures, face: LanternFaceId): HTMLCanvasElement {
+  if (face === "front") return textures.front;
+  return textures.faces?.[face] ?? textures.side;
+}
+
+let buildSeq = 0;
+
+/** Renders the ink layer (everything printed on the paper) for the front, side and per-wall art faces. */
+export function buildFaceTextures(
+  visual: LanternVisual,
+  assets: FaceAssets,
+  options: { target?: FaceTextures | null; resolution?: number } = {},
+): FaceTextures {
+  const w = TEX_W;
+  const h = TEX_H;
+  const res = options.resolution ?? 1;
+  const pw = Math.round(w * res);
+  const ph = Math.round(h * res);
+  const front = options.target?.front ?? makeCanvas(pw, ph);
+  const side = options.target?.side ?? makeCanvas(pw, ph);
+
+  paintFront(beginFace(front, res, pw, ph), visual, assets, w, h, pw, ph);
+  paintSide(beginFace(side, res, pw, ph), visual, w, h, pw, ph);
+  stamp(front);
+  stamp(side);
+
+  // ---------- walls with their own art ----------
+  // Callers only load the front assets; the other walls' images come from the image cache, and the
+  // ones not loaded yet are fetched here and painted into the same canvas once they arrive.
+  const token = ++buildSeq;
+  const withText = textUnderArt(visual);
+  const faces: Partial<Record<ExtraFaceId, HTMLCanvasElement>> = {};
+  for (const face of artFaces(visual)) {
+    const art = visual.faces![face]!;
+    const canvas = options.target?.faces?.[face] ?? makeCanvas(pw, ph);
+    const given = assets.faces?.[face];
+    const wait: Promise<unknown>[] = [];
+    const pick = (src: string | null, explicit: CanvasImageSource | null | undefined) => {
+      if (given) return explicit ?? null;
+      if (!src) return null;
+      const img = peekImage(src);
+      if (!img) wait.push(loadImage(src).catch(() => null));
+      return img;
+    };
+    const paint = (image: CanvasImageSource | null, drawing: CanvasImageSource | null) => {
+      paintArtFace(beginFace(canvas, res, pw, ph), visual, art, { image, drawing }, withText, w, h, pw, ph);
+      stamp(canvas);
+    };
+    paint(pick(art.imageSrc, given?.image), pick(art.drawingSrc, given?.drawing));
+    (canvas as Stamped).__build = token;
+    faces[face] = canvas;
+    if (wait.length) {
+      void Promise.all(wait).then(() => {
+        // rebuilt (or handed to another lantern by a texture pool) in the meantime
+        if ((canvas as Stamped).__build !== token) return;
+        paint(art.imageSrc ? peekImage(art.imageSrc) : null, art.drawingSrc ? peekImage(art.drawingSrc) : null);
+      });
+    }
+  }
+  return { front, side, faces };
+}
+
+/**
+ * One wall's ink layer for the flat studio editors, rendered exactly as it will look on the lantern.
+ * A side wall is drawn as an art face even before it has art (the editor is about to give it some).
+ */
+export function buildFaceLayer(
+  visual: LanternVisual,
+  face: LanternFaceId,
+  assets: { image?: CanvasImageSource | null; drawing?: CanvasImageSource | null },
+  target?: HTMLCanvasElement | null,
+): HTMLCanvasElement {
+  const canvas = target ?? makeCanvas(TEX_W, TEX_H);
+  const ctx = beginFace(canvas, 1, TEX_W, TEX_H);
+  if (face === "front") {
+    paintFront(ctx, visual, assets, TEX_W, TEX_H, TEX_W, TEX_H);
+  } else {
+    const art: FaceArt = visual.faces?.[face] ?? { imageSrc: null, imageConfig: null, drawingSrc: null };
+    // as if this wall already had art – decides whether the blessing stays under it
+    const withText = textUnderArt({ shape: visual.shape, faces: { ...visual.faces, [face]: { ...art, drawingSrc: "x" } } });
+    paintArtFace(ctx, visual, art, assets, withText, TEX_W, TEX_H, TEX_W, TEX_H);
+  }
+  stamp(canvas);
+  return canvas;
 }
 
 /** Make sure the web fonts are ready before rasterising text onto a canvas. */
@@ -1851,6 +1981,13 @@ export async function ensureLanternFonts(fontIds: Iterable<keyof typeof LANTERN_
 }
 
 const imageCache = new Map<string, Promise<HTMLImageElement>>();
+/** the same images once decoded – lets buildFaceTextures pick up already loaded wall art synchronously */
+const loadedImages = new Map<string, HTMLImageElement>();
+
+/** An image loadImage() already finished loading (null while pending / never requested) */
+export function peekImage(src: string): HTMLImageElement | null {
+  return loadedImages.get(src) ?? null;
+}
 
 /** Loads (and caches) an image for canvas use. Works with signed URLs, data: and blob: URLs. */
 export function loadImage(src: string): Promise<HTMLImageElement> {
@@ -1860,14 +1997,20 @@ export function loadImage(src: string): Promise<HTMLImageElement> {
     const img = new Image();
     img.crossOrigin = "anonymous";
     img.decoding = "async";
-    img.onload = () => resolve(img);
+    img.onload = () => {
+      if (imageCache.get(src) === p) loadedImages.set(src, img);
+      resolve(img);
+    };
     img.onerror = () => {
       imageCache.delete(src);
       reject(new Error("image load failed"));
     };
     img.src = src;
   });
-  if (imageCache.size > 300) imageCache.clear();
+  if (imageCache.size > 300) {
+    imageCache.clear();
+    loadedImages.clear();
+  }
   imageCache.set(src, p);
   return p;
 }
@@ -1901,26 +2044,45 @@ function drawingInkNear(drawing: CanvasImageSource, u: number, v: number): boole
   return false;
 }
 
-/** What the visitor tapped on a paper wall: the photo, the hand-drawn sticker or the written text */
+/**
+ * What the visitor tapped on a paper wall: the photo, the hand-drawn layer or the written text.
+ * Walls with their own art are hit-tested against that art; assets.faces (or the image cache) supplies it.
+ */
 export function hitFaceContent(
   visual: LanternVisual,
   assets: FaceAssets,
-  face: "front" | "right" | "back" | "left",
+  face: LanternFaceId,
   u: number,
   v: number,
 ): FaceContentHit | null {
   const hasText = !!(visual.wishMessage || visual.blessingMessage || visual.extraMessage);
-  if (face !== "front") return hasText ? "message" : null;
-  if (assets.drawing && drawingInkNear(assets.drawing, u, v)) return "drawing";
-  if (assets.image && visual.imageConfig) {
-    const r = imageRect(visual.imageConfig, assets.image, TEX_W, TEX_H);
+  let image: CanvasImageSource | null | undefined;
+  let drawing: CanvasImageSource | null | undefined;
+  let imageConfig: ImageConfig | null;
+  if (face === "front") {
+    image = assets.image;
+    drawing = assets.drawing;
+    imageConfig = visual.imageConfig;
+  } else {
+    if (faceTextureKey(visual, face) === "side") return hasText ? "message" : null;
+    const art = visual.faces![face]!;
+    const given = assets.faces?.[face];
+    image = given ? given.image : art.imageSrc ? peekImage(art.imageSrc) : null;
+    drawing = given ? given.drawing : art.drawingSrc ? peekImage(art.drawingSrc) : null;
+    imageConfig = art.imageConfig;
+  }
+  if (drawing && drawingInkNear(drawing, u, v)) return "drawing";
+  if (image && imageConfig) {
+    const r = imageRect(imageConfig, image, TEX_W, TEX_H);
     if (u >= r.x && u <= r.x + r.w && v >= r.y && v <= r.y + r.h) return "image";
   }
-  if (visual.wishMessage) {
+  if (face === "front" && visual.wishMessage) {
     const box = textBox(visual.textConfig.position, TEX_W, TEX_H);
     if (v >= box.top && v <= box.top + box.height && Math.abs(u - box.x) <= box.width / 2) return "message";
   }
-  // unreadable drawing pixels → any tap that is not on the photo / text opens the sticker
-  if (assets.drawing && drawingInkNear(assets.drawing, u, v) === null) return "drawing";
+  // unreadable drawing pixels → any tap that is not on the photo / text counts as the drawing
+  if (drawing && drawingInkNear(drawing, u, v) === null) return "drawing";
+  // blank paper of a wall whose art replaced the writing
+  if (face !== "front" && !textUnderArt(visual) && (image || drawing)) return null;
   return hasText ? "message" : null;
 }

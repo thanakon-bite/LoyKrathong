@@ -30,6 +30,26 @@ export const imageConfigSchema = z.object({
   scale: z.number().min(0.2).max(1),
 });
 
+/** Photo and / or drawing on one of the other walls (paths are checked for ownership by assertAssets) */
+export const faceArtInputSchema = z
+  .object({
+    imagePath: assetPathSchema.nullable().default(null),
+    imageConfig: imageConfigSchema.nullable().default(null),
+    drawingPath: assetPathSchema.nullable().default(null),
+  })
+  .strict()
+  .refine((f) => !f.imagePath || f.imageConfig, { message: "ตำแหน่งรูปไม่ถูกต้อง", path: ["imageConfig"] });
+
+/** right / back / left – the front art stays in imagePath / drawingPath. Unknown keys are rejected. */
+export const lanternFacesInputSchema = z
+  .object({
+    right: faceArtInputSchema.optional(),
+    back: faceArtInputSchema.optional(),
+    left: faceArtInputSchema.optional(),
+  })
+  .strict();
+export type LanternFacesInput = z.infer<typeof lanternFacesInputSchema>;
+
 export const lanternInputSchema = z.object({
   design: z.enum(LANTERN_DESIGN_IDS),
   shape: z.enum(LANTERN_SHAPE_IDS).default("box"),
@@ -42,6 +62,8 @@ export const lanternInputSchema = z.object({
   imageConfig: imageConfigSchema.nullable(),
   imagePath: assetPathSchema.nullable(),
   drawingPath: assetPathSchema.nullable(),
+  /** art on the other walls (only the walls the shape has are kept – see lantern-service) */
+  faces: lanternFacesInputSchema.default({}),
 });
 export type LanternInput = z.infer<typeof lanternInputSchema>;
 
@@ -99,3 +121,10 @@ export const offeringSettingsSchema = z
     max: z.number().min(1).max(100000),
   })
   .refine((o) => o.min <= o.max, { message: "ขั้นต่ำต้องไม่มากกว่าสูงสุด", path: ["min"] });
+
+/* ---------------------------------------------------------------- PromptPay slip payments */
+
+/** Slip mini-QR read in the browser: EMV TLV, alphanumeric, ≤ 128 chars (EasySlip's payload limit) */
+export const slipPayloadSchema = z.string().trim().regex(/^[0-9A-Za-z]{20,128}$/, "QR ของสลิปไม่ถูกต้อง");
+
+export const adminPaymentActionSchema = z.object({ action: z.literal("approve") });

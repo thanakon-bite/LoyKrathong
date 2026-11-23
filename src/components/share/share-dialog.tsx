@@ -1,15 +1,13 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Check, Copy, Download, Eye, ImageIcon, Loader2, Music2, Share2 } from "lucide-react";
+import { Check, Copy, Download, Loader2, Share2 } from "lucide-react";
 import { toast } from "sonner";
 import type { PublicLantern } from "@/types/lantern";
 import { canvasToBlob, renderPolaroid } from "@/lib/share/polaroid";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
-import { lanternShareUrl, type ClipMusic } from "@/lib/share/clip-music";
-import { ClipMusicPicker } from "./clip-music-picker";
 
 interface Props {
   lantern: PublicLantern | null;
@@ -53,8 +51,6 @@ export function ShareDialog({ lantern, onClose, justReleased }: Props) {
   const [file, setFile] = useState<File | null>(null);
   const [rendering, setRendering] = useState(false);
   const [copied, setCopied] = useState(false);
-  const [mode, setMode] = useState<"postcard" | "music">("postcard");
-  const [music, setMusic] = useState<ClipMusic | null>(null);
 
   // the festival replaces lantern objects on every realtime update / resync – only a different lantern
   // (by id) may reset the sheet, otherwise a picked song vanishes and the heavy postcard re-renders mid-use
@@ -65,12 +61,11 @@ export function ShareDialog({ lantern, onClose, justReleased }: Props) {
   });
 
   const shareUrl = useMemo(
-    () => (lanternId && typeof window !== "undefined" ? lanternShareUrl(window.location.origin, lanternId, mode === "music" ? music : null) : ""),
-    [lanternId, mode, music],
+    () => (lanternId && typeof window !== "undefined" ? new URL(`/l/${lanternId}`, window.location.origin).toString() : ""),
+    [lanternId],
   );
-  const withMusic = mode === "music" && !!music;
   const shareText = lantern
-    ? `ฉันปล่อยโคมอธิษฐานลอยกระทง 2569 แล้ว ✨ มาดูโคมของ ${lantern.displayName} ลอยอยู่บนสายน้ำ${withMusic ? " 🎵 เปิดเสียงด้วยนะ" : ""}`
+    ? `ฉันปล่อยโคมอธิษฐานลอยกระทง 2569 แล้ว ✨ มาดูโคมของ ${lantern.displayName} ลอยอยู่บนสายน้ำ`
     : "";
 
   useEffect(() => {
@@ -95,8 +90,6 @@ export function ShareDialog({ lantern, onClose, justReleased }: Props) {
       setImageUrl(null);
       setFile(null);
       setCopied(false);
-      setMode("postcard");
-      setMusic(null);
     };
   }, [lanternId]);
 
@@ -156,43 +149,11 @@ export function ShareDialog({ lantern, onClose, justReleased }: Props) {
         <DialogHeader className="pr-8">
           <DialogTitle>{justReleased ? "ปล่อยโคมสำเร็จแล้ว ✨" : "แชร์โคมดวงนี้"}</DialogTitle>
           <DialogDescription>
-            {mode === "music" ? "แนบเพลงจาก YouTube 15 วินาที เพื่อนเปิดลิงก์แล้วเห็นกระทงของคุณลอยใต้แสงจันทร์พร้อมเพลง" : "ส่งโปสการ์ดให้เพื่อน แตะลิงก์แล้วเจอโคมของคุณทันที"}
+            ส่งโปสการ์ดให้เพื่อน แตะลิงก์แล้วเจอโคมของคุณทันที
           </DialogDescription>
         </DialogHeader>
 
-        <div role="tablist" aria-label="รูปแบบการแชร์" className="grid grid-cols-2 gap-1 rounded-full bg-white/5 p-1">
-          {(
-            [
-              ["postcard", ImageIcon, "โปสการ์ด"],
-              ["music", Music2, "แนบเพลง"],
-            ] as const
-          ).map(([m, Icon, label]) => (
-            <button
-              key={m}
-              type="button"
-              role="tab"
-              aria-selected={mode === m}
-              onClick={() => setMode(m)}
-              className={cn("flex items-center justify-center gap-1.5 rounded-full py-1.5 text-sm transition", mode === m ? "bg-gold text-night" : "text-warm/65 hover:text-warm")}
-            >
-              <Icon className="size-4" /> {label}
-            </button>
-          ))}
-        </div>
-
-        {mode === "music" && <ClipMusicPicker value={music} onChange={setMusic} />}
-        {withMusic && (
-          <a
-            href={shareUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex items-center justify-center gap-1.5 rounded-full border border-gold/30 py-2 text-xs text-gold transition hover:bg-gold/10"
-          >
-            <Eye className="size-3.5" /> ดูตัวอย่างหน้าที่เพื่อนจะเห็น
-          </a>
-        )}
-
-        <div className={cn("relative mx-auto aspect-[9/16] h-[46dvh] max-h-[460px] overflow-hidden rounded-2xl bg-white/5", mode === "music" && "hidden")}>
+        <div className="relative mx-auto aspect-[9/16] h-[46svh] max-h-[460px] overflow-hidden rounded-2xl bg-white/5">
           {imageUrl ? (
             // eslint-disable-next-line @next/next/no-img-element -- local blob URL
             <img src={imageUrl} alt="โปสการ์ดโคมอธิษฐาน" className="h-full w-full object-cover" />
@@ -236,7 +197,7 @@ export function ShareDialog({ lantern, onClose, justReleased }: Props) {
           )}
         </div>
         <p className="text-center text-[11px] text-warm/40">
-          {withMusic ? "Story จะใช้รูปโปสการ์ด + สติกเกอร์ลิงก์ (มีเพลง) · " : ""}ลิงก์เปิดดูโคมได้ 7 วัน ตลอดเวลาที่โคมยังลอยอยู่
+          ลิงก์เปิดดูโคมได้ 7 วัน ตลอดเวลาที่โคมยังลอยอยู่
         </p>
       </DialogContent>
     </Dialog>

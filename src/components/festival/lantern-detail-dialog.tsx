@@ -15,7 +15,7 @@ import { cn } from "@/lib/utils";
 import { formatRemaining } from "@/lib/lantern/motion";
 import { EFFECT_META } from "@/lib/lantern/effects-meta";
 import { canvasToBlob, renderPolaroid } from "@/lib/share/polaroid";
-import { DrawnSticker, KeepsakeViewer, lanternKeepsakes, PolaroidPhoto } from "@/components/share/keepsake-viewer";
+import { KeepsakeViewer, lanternKeepsakes, PolaroidPhoto } from "@/components/share/keepsake-viewer";
 
 const REASONS = [
   { id: "inappropriate", label: "เนื้อหาไม่เหมาะสม" },
@@ -125,12 +125,8 @@ export function LanternDetailDialog({ lantern, serverOffset, onClose, onGone, on
 
   const released = data ? new Date(data.releasedAt).toLocaleString("th-TH", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }) : "";
   const keepsakes = data ? lanternKeepsakes(data) : [];
-  const gallery = data
-    ? ([
-        data.imageSrc && { kind: "image", src: data.imageSrc, alt: `รูปภาพจาก ${data.displayName}`, label: "รูปภาพ" },
-        data.drawingSrc && { kind: "drawing", src: data.drawingSrc, alt: `สติกเกอร์ที่ ${data.displayName} วาด`, label: "สติกเกอร์" },
-      ].filter(Boolean) as Array<{ kind: "image" | "drawing"; src: string; alt: string; label: string }>)
-    : [];
+  // photos of every wall as polaroids (drawings are already visible on the lantern itself)
+  const gallery = keepsakes.filter((k) => k.kind === "image" && k.src);
 
   return (
     <Dialog open={!!lantern} onOpenChange={(o) => !o && onClose()}>
@@ -214,17 +210,13 @@ export function LanternDetailDialog({ lantern, serverOffset, onClose, onGone, on
                     <div className="flex flex-wrap items-start gap-5 px-1 pt-2">
                       {gallery.map((g, i) => (
                         <button
-                          key={g.kind}
+                          key={g.key}
                           type="button"
-                          onClick={() => setZoom(keepsakes.findIndex((k) => k.kind === g.kind))}
+                          onClick={() => setZoom(keepsakes.indexOf(g))}
                           aria-label={`ดู${g.label}`}
                           className="w-32 transition duration-300 hover:-translate-y-1 hover:scale-[1.04] sm:w-36"
                         >
-                          {g.kind === "image" ? (
-                            <PolaroidPhoto src={g.src} alt={g.alt} caption={data.displayName} size="sm" rotate={i % 2 ? 3 : -3} />
-                          ) : (
-                            <DrawnSticker src={g.src} alt={g.alt} size="sm" rotate={i % 2 ? 4 : -4} />
-                          )}
+                          <PolaroidPhoto src={g.src!} alt={`${g.label}จาก ${data.displayName}`} caption={data.displayName} size="sm" rotate={i % 2 ? 3 : -3} />
                         </button>
                       ))}
                     </div>

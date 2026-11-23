@@ -1,12 +1,12 @@
 import "server-only";
-import sharp from "sharp";
 import { ApiError } from "@/lib/api";
 import { getAdminSupabase, LANTERN_BUCKET } from "@/lib/supabase/admin";
 import { MAX_SOURCE_IMAGE_BYTES, sniffImageType } from "@/lib/security/image";
-import { TEX_H, TEX_W } from "@/lib/lantern/texture";
+import { InvalidImageError, reencodeImage } from "./image-processing";
 import { deleteObjects, getObject, headObject, isR2Configured, presignGet, presignPut, putObject } from "@/lib/storage/r2";
 
-export type AssetKind = "image" | "drawing";
+export type { AssetKind } from "./image-processing";
+import type { AssetKind } from "./image-processing";
 
 /**
  * Where an asset lives is encoded in its file name (the DB constraint on image_url only allows
@@ -15,9 +15,6 @@ export type AssetKind = "image" | "drawing";
  *   <userId>/image-<uuid>.webp     → Supabase Storage (older lanterns)
  */
 export const isR2Path = (path: string) => /^[^/]+\/r2-/.test(path);
-
-/** Longest side of a stored photo (shown on the lantern face and as a polaroid) */
-const IMAGE_MAX_SIDE = 1600;
 
 /**
  * Validates and re-encodes an uploaded image server-side.
@@ -29,22 +26,13 @@ export async function processAndStoreAsset(userId: string, kind: AssetKind, byte
   const type = sniffImageType(bytes);
   if (!type) throw new ApiError(415, "unsupported_type", "รองรับเฉพาะไฟล์ JPG, PNG และ WEBP");
 
-  let output: Buffer;
+  let output: Uint8Array;
   let ext: "webp" | "png";
   try {
-    // 50 MB photos can be ~100 MP; sharp streams them, but keep a hard ceiling for memory
-    const img = sharp(bytes, { limitInputPixels: 120_000_000, failOn: "error" }).rotate();
-    const meta = await img.metadata();
-    if (!meta.width || !meta.height) throw new Error("no dimensions");
-    if (kind === "drawing") {
-      output = await img.resize(TEX_W, TEX_H, { fit: "fill" }).png({ compressionLevel: 9, palette: true }).toBuffer();
-      ext = "png";
-    } else {
-      output = await img.resize(IMAGE_MAX_SIDE, IMAGE_MAX_SIDE, { fit: "inside", withoutEnlargement: true }).webp({ quality: 84 }).toBuffer();
-      ext = "webp";
-    }
-  } catch {
-    throw new ApiError(415, "invalid_image", "ไม่สามารถอ่านไฟล์รูปภาพได้ หรือไฟล์เสียหาย");
+    ({ output, ext } = await reencodeImage(kind, bytes));
+  } catch (e) {
+    if (e instanceof InvalidImageError) throw new ApiError(415, "invalid_image", "ไม่สามารถอ่านไฟล์รูปภาพได้ หรือไฟล์เสียหาย");
+    throw e;
   }
 
   const contentType = ext === "png" ? "image/png" : "image/webp";

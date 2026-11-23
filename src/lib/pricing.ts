@@ -1,7 +1,7 @@
 import type { Catalog, Quote, QuoteLine, Selection } from "@/types/catalog";
 
-/** Stripe's minimum charge for THB */
-export const MIN_PAID_TOTAL = 10;
+/** Smallest paid total (PromptPay transfers have no Stripe-style minimum) */
+export const MIN_PAID_TOTAL = 1;
 
 export class PricingError extends Error {
   constructor(public code: string, message: string) {
@@ -49,8 +49,8 @@ export function quote(catalog: Catalog, sel: Selection): Quote {
   return { lines, total };
 }
 
-/** Free (0) or at least the Stripe minimum */
+/** Free (0) or at least the minimum paid total */
 export function totalProblem(total: number, min = MIN_PAID_TOTAL): string | null {
-  if (total > 0 && total < min) return `ยอดชำระขั้นต่ำ ${min} บาท (ข้อกำหนดของ Stripe) – เพิ่มของเสริมหรือใส่เงินอีก ${round2(min - total)} บาท`;
+  if (total > 0 && total < min) return `ยอดชำระขั้นต่ำ ${min} บาท – เพิ่มของเสริมหรือใส่เงินอีก ${round2(min - total)} บาท`;
   return null;
 }

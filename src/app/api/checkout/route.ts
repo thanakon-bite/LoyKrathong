@@ -3,9 +3,12 @@ import { releaseRequestSchema } from "@/lib/security/validation";
 import { rateLimit } from "@/services/rate-limit";
 import { quoteRequest } from "@/services/quote-service";
 import { assertAssets, assertHasContent } from "@/services/lantern-service";
-import { createCheckoutSession } from "@/services/payment-service";
+import { createPromptPayOrder } from "@/services/slip-payment-service";
 
-/** Creates a Stripe Checkout Session. Every price comes from the database, never from the client. */
+/**
+ * Creates a PromptPay QR order: pending lantern + pending payment. Every price comes from the database,
+ * never from the client. (Stripe Checkout – createCheckoutSession – is no longer used for new orders.)
+ */
 export async function POST(req: Request) {
   try {
     assertSameOrigin(req);
@@ -19,8 +22,8 @@ export async function POST(req: Request) {
     if (quote.total <= 0) throw new ApiError(400, "free", "รายการนี้ไม่ต้องชำระเงิน");
     await assertAssets(user.id, body.lantern);
 
-    const { url, paymentId } = await createCheckoutSession(user.id, body.lantern, selection, quote, body.requestId);
-    return noStore({ url, paymentId }, 201);
+    const order = await createPromptPayOrder(user.id, body.lantern, selection, quote, body.requestId);
+    return noStore({ paymentId: order.paymentId, order }, 201);
   } catch (err) {
     return handleError(err, "POST /api/checkout");
   }

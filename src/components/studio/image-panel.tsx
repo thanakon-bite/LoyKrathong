@@ -3,25 +3,29 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import Cropper, { type Area } from "react-easy-crop";
 import "react-easy-crop/react-easy-crop.css";
-import { Crop, ImagePlus, Loader2, Move, Trash2, Upload } from "lucide-react";
+import { Crop, ImagePlus, Loader2, Minus, Move, Plus, Trash2, Upload } from "lucide-react";
 import { toast } from "sonner";
-import type { ImageConfig, LanternVisual } from "@/types/lantern";
-import { buildFaceTextures, ensureLanternFonts, imageRect, loadImage, TEX_H, TEX_W } from "@/lib/lantern/texture";
+import { FACE_LABEL_TH, type ImageConfig, type LanternFaceId, type LanternVisual } from "@/types/lantern";
+import { buildFaceLayer, ensureLanternFonts, imageRect, loadImage, peekImage, TEX_H, TEX_W } from "@/lib/lantern/texture";
 import { cropAndCompress, prepareImageSource, validateImageFile } from "@/lib/image-client";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Label } from "@/components/ui/label";
 import { Slider } from "@/components/ui/slider";
 import { clamp, cn } from "@/lib/utils";
 import { paintPaper } from "./face-paper";
 
 interface Props {
+  /** the whole lantern as it is now (draft visual) */
   visual: LanternVisual;
+  /** wall the photo goes on */
+  face: LanternFaceId;
   imageDataUrl: string | null;
   imageConfig: ImageConfig;
   allowed: boolean;
   onImage: (dataUrl: string | null) => void;
   onConfig: (cfg: ImageConfig) => void;
+  /** shown above the editor (the wall picker) */
+  header?: React.ReactNode;
 }
 
 const ASPECTS = [
@@ -31,7 +35,11 @@ const ASPECTS = [
   { label: "16:9", value: 16 / 9 },
 ];
 
-export function ImagePanel({ visual, imageDataUrl, imageConfig, allowed, onImage, onConfig }: Props) {
+type Pt = { x: number; y: number };
+
+const fit = (c: ImageConfig): ImageConfig => ({ x: clamp(c.x, -0.5, 0.5), y: clamp(c.y, -0.5, 0.5), scale: clamp(c.scale, 0.2, 1) });
+
+export function ImagePanel({ visual, face, imageDataUrl, imageConfig, allowed, onImage, onConfig, header }: Props) {
   const inputRef = useRef<HTMLInputElement>(null);
   const faceRef = useRef<HTMLCanvasElement>(null);
   const [source, setSourceState] = useState<string | null>(null);
@@ -50,62 +58,72 @@ export function ImagePanel({ visual, imageDataUrl, imageConfig, allowed, onImage
   const [area, setArea] = useState<Area | null>(null);
   const [busy, setBusy] = useState(false);
   const [dragOver, setDragOver] = useState(false);
-  const drag = useRef<{ startX: number; startY: number; cfg: ImageConfig } | null>(null);
-  // two fingers on the lantern face = pinch to resize the photo
-  const touches = useRef(new Map<number, { x: number; y: number }>());
-  const pinch = useRef<{ dist: number; scale: number } | null>(null);
-  const spread = () => {
-    const [a, b] = [...touches.current.values()];
-    return a && b ? Math.hypot(a.x - b.x, a.y - b.y) : 0;
-  };
   const imgRef = useRef<HTMLImageElement | null>(null);
 
-  // render the face with the image in place (drag to reposition)
+  // the wall as it will look, photo in place – rendered synchronously when the images are decoded
+  // (keeps a pinch smooth), otherwise once they have loaded
+  const drawingSrc = face === "front" ? visual.drawingSrc : (visual.faces?.[face]?.drawingSrc ?? null);
   useEffect(() => {
     let cancelled = false;
-    (async () => {
-      await ensureLanternFonts([visual.textConfig.font]);
-      const [image, drawing] = await Promise.all([
-        visual.imageSrc ? loadImage(visual.imageSrc).catch(() => null) : null,
-        visual.drawingSrc ? loadImage(visual.drawingSrc).catch(() => null) : null,
-      ]);
+    const paint = (image: HTMLImageElement | null, drawing: HTMLImageElement | null) => {
       imgRef.current = image;
-      const tex = buildFaceTextures(visual, { image, drawing });
       const c = faceRef.current;
       if (cancelled || !c) return;
+      const v: LanternVisual =
+        face === "front"
+          ? { ...visual, imageSrc: imageDataUrl, imageConfig }
+          : { ...visual, faces: { ...visual.faces, [face]: { imageSrc: imageDataUrl, imageConfig, drawingSrc } } };
+      const layer = buildFaceLayer(v, face, { image, drawing });
       const ctx = c.getContext("2d")!;
       paintPaper(ctx, visual.design, visual.color);
-      ctx.drawImage(tex.front, 0, 0);
-      if (image && visual.imageConfig) {
-        const r = imageRect(visual.imageConfig, image, TEX_W, TEX_H);
+      ctx.drawImage(layer, 0, 0);
+      if (image) {
+        const r = imageRect(imageConfig, image, TEX_W, TEX_H);
         ctx.setLineDash([10, 8]);
         ctx.strokeStyle = "rgba(245,185,66,0.9)";
         ctx.lineWidth = 3;
         ctx.strokeRect(r.x - 4, r.y - 4, r.w + 8, r.h + 8);
       }
-    })();
+    };
+    const image = imageDataUrl ? peekImage(imageDataUrl) : null;
+    const drawing = drawingSrc ? peekImage(drawingSrc) : null;
+    if ((!imageDataUrl || image) && (!drawingSrc || drawing)) {
+      paint(image, drawing);
+    } else {
+      void (async () => {
+        await ensureLanternFonts([visual.textConfig.font]);
+        const [im, dr] = await Promise.all([
+          imageDataUrl ? loadImage(imageDataUrl).catch(() => null) : null,
+          drawingSrc ? loadImage(drawingSrc).catch(() => null) : null,
+        ]);
+        paint(im, dr);
+      })();
+    }
     return () => {
       cancelled = true;
     };
-  }, [visual]);
+  }, [visual, face, imageDataUrl, imageConfig, drawingSrc]);
 
-  const openFile = useCallback(async (file: File) => {
-    const err = validateImageFile(file);
-    if (err) {
-      toast.error(err);
-      return;
-    }
-    setLoadingFile(true);
-    try {
-      setSource(await prepareImageSource(file));
-      setCrop({ x: 0, y: 0 });
-      setZoom(1);
-    } catch (e) {
-      toast.error((e as Error).message);
-    } finally {
-      setLoadingFile(false);
-    }
-  }, [setSource]);
+  const openFile = useCallback(
+    async (file: File) => {
+      const err = validateImageFile(file);
+      if (err) {
+        toast.error(err);
+        return;
+      }
+      setLoadingFile(true);
+      try {
+        setSource(await prepareImageSource(file));
+        setCrop({ x: 0, y: 0 });
+        setZoom(1);
+      } catch (e) {
+        toast.error((e as Error).message);
+      } finally {
+        setLoadingFile(false);
+      }
+    },
+    [setSource],
+  );
 
   const confirmCrop = async () => {
     if (!source || !area) return;
@@ -113,7 +131,9 @@ export function ImagePanel({ visual, imageDataUrl, imageConfig, allowed, onImage
     try {
       const out = await cropAndCompress(source, area);
       onImage(out);
-      onConfig({ x: 0, y: visual.textConfig.position === "bottom" ? -0.15 : 0.18, scale: aspect >= 1 ? 0.6 : 0.45 });
+      // keep clear of the wish text on the front; centred on the other walls
+      const y = face !== "front" ? 0 : visual.textConfig.position === "bottom" ? -0.15 : 0.18;
+      onConfig({ x: 0, y, scale: aspect >= 1 ? 0.6 : 0.45 });
       setSource(null);
     } catch (e) {
       toast.error((e as Error).message);
@@ -122,49 +142,89 @@ export function ImagePanel({ visual, imageDataUrl, imageConfig, allowed, onImage
     }
   };
 
-  const onPointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
-    if (!imageDataUrl || !imgRef.current) return;
-    touches.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
-    if (touches.current.size >= 2) {
-      e.currentTarget.setPointerCapture(e.pointerId);
-      drag.current = null;
-      pinch.current = { dist: Math.max(1, spread()), scale: imageConfig.scale };
+  // ---------- gestures: one finger / mouse drags the photo, two fingers pinch (resize) and move it ----------
+  const pointers = useRef(new Map<number, Pt>());
+  const gesture = useRef<{ start: Pt; dist: number; cfg: ImageConfig } | null>(null);
+  const cfgRef = useRef(imageConfig);
+  useEffect(() => {
+    cfgRef.current = imageConfig;
+  });
+  const centre = () => {
+    const pts = [...pointers.current.values()];
+    const x = pts.reduce((s, p) => s + p.x, 0) / pts.length;
+    const y = pts.reduce((s, p) => s + p.y, 0) / pts.length;
+    const [a, b] = pts;
+    return { x, y, dist: a && b ? Math.max(1, Math.hypot(a.x - b.x, a.y - b.y)) : 0 };
+  };
+  /** (re)start the gesture from the current fingers – called whenever one lands or lifts, so nothing jumps */
+  const restart = () => {
+    if (!pointers.current.size) {
+      gesture.current = null;
       return;
     }
-    const r = e.currentTarget.getBoundingClientRect();
-    const px = ((e.clientX - r.left) / r.width) * TEX_W;
-    const py = ((e.clientY - r.top) / r.height) * TEX_H;
-    const ir = imageRect(imageConfig, imgRef.current, TEX_W, TEX_H);
-    if (px < ir.x || px > ir.x + ir.w || py < ir.y || py > ir.y + ir.h) return;
+    const c = centre();
+    gesture.current = { start: { x: c.x, y: c.y }, dist: c.dist, cfg: cfgRef.current };
+  };
+
+  const onPointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    if (!imageDataUrl || !imgRef.current) return;
+    if (e.pointerType === "mouse" && e.button !== 0) return;
+    e.preventDefault();
     e.currentTarget.setPointerCapture(e.pointerId);
-    drag.current = { startX: e.clientX, startY: e.clientY, cfg: imageConfig };
+    pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    restart();
   };
 
   const onPointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
-    if (touches.current.has(e.pointerId)) touches.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
-    if (pinch.current && touches.current.size >= 2) {
-      onConfig({ ...imageConfig, scale: clamp(pinch.current.scale * (spread() / pinch.current.dist), 0.2, 1) });
-      return;
-    }
-    if (!drag.current) return;
+    if (!pointers.current.has(e.pointerId) || !gesture.current) return;
+    pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
     const r = e.currentTarget.getBoundingClientRect();
-    const dx = (e.clientX - drag.current.startX) / r.width;
-    const dy = (e.clientY - drag.current.startY) / r.height;
-    onConfig({ ...drag.current.cfg, x: clamp(drag.current.cfg.x + dx, -0.5, 0.5), y: clamp(drag.current.cfg.y + dy, -0.5, 0.5) });
+    const g = gesture.current;
+    const c = centre();
+    const scale = g.dist && c.dist ? g.cfg.scale * (c.dist / g.dist) : g.cfg.scale;
+    const next = fit({ x: g.cfg.x + (c.x - g.start.x) / r.width, y: g.cfg.y + (c.y - g.start.y) / r.height, scale });
+    cfgRef.current = next;
+    onConfig(next);
   };
 
   const endPointer = (e: React.PointerEvent<HTMLCanvasElement>) => {
-    touches.current.delete(e.pointerId);
-    if (touches.current.size < 2) pinch.current = null;
-    drag.current = null;
+    if (!pointers.current.delete(e.pointerId)) return;
+    restart();
   };
+
+  // trackpad pinch / ctrl + wheel resizes the photo on desktop
+  useEffect(() => {
+    const c = faceRef.current;
+    if (!c) return;
+    const onWheel = (e: WheelEvent) => {
+      if (!(e.ctrlKey || e.metaKey)) return;
+      e.preventDefault();
+      const cfg = cfgRef.current;
+      const next = fit({ ...cfg, scale: cfg.scale * Math.exp(-e.deltaY * 0.01) });
+      cfgRef.current = next;
+      onConfig(next);
+    };
+    // iOS Safari: its own pinch gesture events must not zoom the page while resizing the photo
+    const stop = (e: Event) => e.preventDefault();
+    c.addEventListener("wheel", onWheel, { passive: false });
+    c.addEventListener("gesturestart", stop);
+    c.addEventListener("gesturechange", stop);
+    return () => {
+      c.removeEventListener("wheel", onWheel);
+      c.removeEventListener("gesturestart", stop);
+      c.removeEventListener("gesturechange", stop);
+    };
+  }, [onConfig, imageDataUrl]);
+
+  const nudgeScale = (f: number) => onConfig(fit({ ...imageConfig, scale: imageConfig.scale * f }));
 
   if (!allowed) {
     return <p className="rounded-2xl border border-white/10 bg-white/5 p-4 text-sm text-warm/60">แพ็กเกจที่เลือกไม่รองรับการใส่รูปภาพ</p>;
   }
 
   return (
-    <div className="space-y-4">
+    <div className="flex h-full flex-col gap-2 lg:h-auto lg:gap-3">
+      {header}
       <input
         ref={inputRef}
         type="file"
@@ -194,60 +254,60 @@ export function ImagePanel({ visual, imageDataUrl, imageConfig, allowed, onImage
             if (f) void openFile(f);
           }}
           className={cn(
-            "flex w-full flex-col items-center justify-center gap-3 rounded-3xl border-2 border-dashed px-6 py-12 text-center transition",
+            "flex min-h-0 w-full flex-1 flex-col items-center justify-center gap-3 rounded-3xl border-2 border-dashed px-6 py-6 text-center transition lg:flex-none lg:py-12",
             dragOver ? "border-gold bg-gold/10" : "border-white/15 hover:border-gold/50 hover:bg-white/[0.03]",
           )}
         >
           <span className="grid size-14 place-items-center rounded-2xl bg-gold/10 text-gold">
             {loadingFile ? <Loader2 className="size-7 animate-spin" /> : <ImagePlus className="size-7" />}
           </span>
-          <span className="text-sm text-warm">{loadingFile ? "กำลังเปิดรูป…" : "แตะเพื่อเลือกรูป หรือลากไฟล์มาวาง"}</span>
+          <span className="text-sm text-warm">{loadingFile ? "กำลังเปิดรูป…" : `แตะเพื่อเลือกรูปสำหรับ${FACE_LABEL_TH[face]}`}</span>
           <span className="text-xs text-warm/45">JPG, JPEG, PNG, WEBP · ไม่เกิน 50 MB</span>
         </button>
       ) : (
         <>
-          <div className="relative mx-auto w-full max-w-sm overflow-hidden rounded-xl border border-gold/30" style={{ aspectRatio: `${TEX_W} / ${TEX_H}` }}>
-            <canvas
-              ref={faceRef}
-              width={TEX_W}
-              height={TEX_H}
-              aria-label="ด้านหน้าโคม ลากรูปเพื่อปรับตำแหน่ง"
-              className="absolute inset-0 h-full w-full cursor-move touch-none"
-              onPointerDown={onPointerDown}
-              onPointerMove={onPointerMove}
-              onPointerUp={endPointer}
-              onPointerCancel={endPointer}
-            />
-          </div>
-          <p className="flex items-center justify-center gap-1.5 text-xs text-warm/50">
-            <Move className="size-3.5" /> ลากรูปเพื่อย้าย · ถ่าง/หุบสองนิ้วบนโคมเพื่อย่อขยาย
-          </p>
-          <div className="space-y-3">
-            <div className="space-y-1.5">
-              <Label>ขนาดรูป</Label>
-              <Slider min={0.2} max={1} step={0.01} value={[imageConfig.scale]} onValueChange={([v]) => onConfig({ ...imageConfig, scale: v })} aria-label="ขนาดรูป" />
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-1.5">
-                <Label>แนวนอน</Label>
-                <Slider min={-0.5} max={0.5} step={0.01} value={[imageConfig.x]} onValueChange={([v]) => onConfig({ ...imageConfig, x: v })} aria-label="ตำแหน่งแนวนอน" />
-              </div>
-              <div className="space-y-1.5">
-                <Label>แนวตั้ง</Label>
-                <Slider min={-0.5} max={0.5} step={0.01} value={[imageConfig.y]} onValueChange={([v]) => onConfig({ ...imageConfig, y: v })} aria-label="ตำแหน่งแนวตั้ง" />
-              </div>
+          <div className="min-h-0 flex-1 [container-type:size] lg:flex-none lg:[container-type:normal]">
+            <div
+              className="relative mx-auto w-[min(100cqw,calc(100cqh*0.909))] overflow-hidden rounded-xl border border-gold/30 lg:w-full lg:max-w-sm"
+              style={{ aspectRatio: `${TEX_W} / ${TEX_H}` }}
+            >
+              <canvas
+                ref={faceRef}
+                width={TEX_W}
+                height={TEX_H}
+                aria-label={`${FACE_LABEL_TH[face]}ของโคม ลากเพื่อย้ายรูป ถ่างหรือหุบสองนิ้วเพื่อย่อขยาย`}
+                className="absolute inset-0 h-full w-full cursor-move touch-none select-none"
+                style={{ WebkitTouchCallout: "none" }}
+                onPointerDown={onPointerDown}
+                onPointerMove={onPointerMove}
+                onPointerUp={endPointer}
+                onPointerCancel={endPointer}
+                onContextMenu={(e) => e.preventDefault()}
+              />
+              <span className="pointer-events-none absolute inset-x-2 bottom-2 flex items-center justify-center gap-1.5 rounded-full bg-night/60 px-2 py-1 text-[11px] text-warm/80 backdrop-blur">
+                <Move className="size-3.5 shrink-0" /> ลากเพื่อย้าย · ถ่าง/หุบสองนิ้วเพื่อย่อขยาย
+              </span>
             </div>
           </div>
-          <div className="flex flex-wrap gap-2">
-            <Button type="button" variant="subtle" size="sm" onClick={() => setSource(imageDataUrl)}>
-              <Crop /> ครอปใหม่
+          <div className="flex items-center gap-1.5">
+            <Button type="button" variant="subtle" size="sm" className="px-2.5" onClick={() => setSource(imageDataUrl)}>
+              <Crop /> ครอป
             </Button>
-            <Button type="button" variant="subtle" size="sm" onClick={() => inputRef.current?.click()}>
-              <Upload /> เปลี่ยนรูป
+            <Button type="button" variant="subtle" size="sm" className="px-2.5" onClick={() => inputRef.current?.click()}>
+              <Upload /> เปลี่ยน
             </Button>
-            <Button type="button" variant="ghost" size="sm" className="text-red-300 hover:text-red-200" onClick={() => onImage(null)}>
-              <Trash2 /> ลบรูป
+            <Button type="button" variant="ghost" size="sm" className="px-2.5 text-red-300 hover:text-red-200" onClick={() => onImage(null)}>
+              <Trash2 /> ลบ
             </Button>
+            <div className="ml-auto flex items-center rounded-full border border-white/10 bg-white/5">
+              <button type="button" aria-label="ย่อรูป" onClick={() => nudgeScale(1 / 1.1)} className="grid size-8 place-items-center text-warm/80 hover:text-warm">
+                <Minus className="size-4" />
+              </button>
+              <span className="w-9 text-center text-[11px] tabular-nums text-warm/60">{Math.round(imageConfig.scale * 100)}%</span>
+              <button type="button" aria-label="ขยายรูป" onClick={() => nudgeScale(1.1)} className="grid size-8 place-items-center text-warm/80 hover:text-warm">
+                <Plus className="size-4" />
+              </button>
+            </div>
           </div>
         </>
       )}
@@ -256,19 +316,11 @@ export function ImagePanel({ visual, imageDataUrl, imageConfig, allowed, onImage
         <DialogContent className="max-w-xl">
           <DialogHeader>
             <DialogTitle>ครอปรูปภาพ</DialogTitle>
-            <DialogDescription>ลากเพื่อจัดตำแหน่ง และซูมเพื่อเลือกส่วนที่ต้องการแสดงบนโคม</DialogDescription>
+            <DialogDescription>ลากเพื่อจัดตำแหน่ง และซูมเพื่อเลือกส่วนที่ต้องการแสดงบน{FACE_LABEL_TH[face]}ของโคม</DialogDescription>
           </DialogHeader>
           <div className="relative h-72 overflow-hidden rounded-2xl bg-black sm:h-96">
             {source && (
-              <Cropper
-                image={source}
-                crop={crop}
-                zoom={zoom}
-                aspect={aspect}
-                onCropChange={setCrop}
-                onZoomChange={setZoom}
-                onCropComplete={(_, px) => setArea(px)}
-              />
+              <Cropper image={source} crop={crop} zoom={zoom} aspect={aspect} onCropChange={setCrop} onZoomChange={setZoom} onCropComplete={(_, px) => setArea(px)} />
             )}
           </div>
           <div className="flex flex-wrap items-center gap-2">

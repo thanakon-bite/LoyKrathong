@@ -25,7 +25,7 @@ export interface Catalog {
   /** krathong silhouettes – empty until the shapes migration has run (then only "box", free, is offered) */
   shapes: CatalogItem[];
   offering: OfferingSettings;
-  /** Stripe minimum charge for THB */
+  /** smallest paid total (THB) */
   minPaidTotal: number;
 }
 

@@ -5,7 +5,7 @@ import { ChevronLeft, ChevronRight, EyeOff, RotateCcw, X } from "lucide-react";
 import { toast } from "sonner";
 import { apiFetch } from "@/lib/api-client";
 import { LANTERN_DESIGNS } from "@/lib/lantern/designs";
-import { formatDateTime, formatTHB } from "@/lib/utils";
+import { cn, formatDateTime, formatTHB } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -254,14 +254,130 @@ interface AdminPayment {
   failure_reason: string | null;
   created_at: string;
   paid_at: string | null;
+  slips?: AdminSlip[];
+}
+
+interface AdminSlip {
+  id: string;
+  payment_id: string;
+  image_url: string | null;
+  trans_ref: string | null;
+  status: string;
+  reason: string | null;
+  message: string | null;
+  amount: number | null;
+  slip_date: string | null;
+  sender_name: string | null;
+  sender_bank: string | null;
+  receiver_name: string | null;
+  receiver_account: string | null;
+  receiver_proxy: string | null;
+  receiver_bank: string | null;
+  is_duplicate: boolean | null;
+  created_at: string;
+}
+
+const SLIP_STATUS_TH: Record<string, string> = {
+  processing: "กำลังตรวจ",
+  verified: "ผ่าน",
+  rejected: "ไม่ผ่าน",
+  error: "ตรวจไม่ได้",
+  pending_review: "รอแอดมินตรวจ",
+};
+
+function SlipCell({ slip }: { slip: AdminSlip }) {
+  return (
+    <div className="flex gap-2">
+      {slip.image_url ? (
+        <a href={slip.image_url} target="_blank" rel="noopener noreferrer" className="shrink-0" title="เปิดสลิปขนาดเต็ม">
+          {/* eslint-disable-next-line @next/next/no-img-element -- short-lived signed URL */}
+          <img src={slip.image_url} alt="สลิป" loading="lazy" className="h-16 w-12 rounded border border-white/10 object-cover" />
+        </a>
+      ) : (
+        <span className="flex h-16 w-12 shrink-0 items-center justify-center rounded border border-white/10 text-[10px] text-warm/30">ไม่มีรูป</span>
+      )}
+      <div className="min-w-0 space-y-0.5 text-[11px] text-warm/60">
+        <p>
+          <Badge variant={slip.status === "verified" ? "success" : slip.status === "rejected" || slip.status === "error" ? "danger" : "warning"}>
+            {SLIP_STATUS_TH[slip.status] ?? slip.status}
+          </Badge>
+          {slip.is_duplicate && <span className="ml-1 text-amber">ซ้ำ (provider)</span>}
+        </p>
+        {slip.trans_ref && <p className="max-w-56 truncate font-mono">ref {slip.trans_ref}</p>}
+        {slip.amount != null && (
+          <p>
+            {formatTHB(Number(slip.amount))}
+            {slip.slip_date ? ` · ${formatDateTime(slip.slip_date)}` : ""}
+          </p>
+        )}
+        {(slip.receiver_name || slip.receiver_proxy || slip.receiver_account) && (
+          <p className="max-w-56 truncate">ถึง {[slip.receiver_name, slip.receiver_bank, slip.receiver_proxy ?? slip.receiver_account].filter(Boolean).join(" · ")}</p>
+        )}
+        {slip.sender_name && (
+          <p className="max-w-56 truncate">
+            จาก {slip.sender_name}
+            {slip.sender_bank ? ` · ${slip.sender_bank}` : ""}
+          </p>
+        )}
+        {slip.status !== "verified" && slip.message && <p className="max-w-56 text-red-200/80">{slip.message}</p>}
+      </div>
+    </div>
+  );
+}
+
+interface SlipQuotaInfo {
+  provider: string;
+  quota: { quota: number | null; overQuota: number | null; specialQuota: number | null; endDate: string | null; specialEndDate: string | null } | null;
+  error: string | null;
+}
+
+function SlipQuotaCard() {
+  const { data, error } = useAdminList<SlipQuotaInfo>("/api/admin/payments/quota");
+  const q = data?.quota;
+  return (
+    <Card className="flex flex-wrap items-center gap-x-4 gap-y-1 py-3 text-sm">
+      <span className="text-warm/60">ตรวจสลิปอัตโนมัติ{data ? ` (${data.provider === "slipok" ? "SlipOK" : "EasySlip"})` : ""}</span>
+      {error && <span className="text-red-200">{error}</span>}
+      {!data && !error && <Skeleton className="h-5 w-40" />}
+      {data?.error && <span className="text-red-200">{data.error}</span>}
+      {q && (
+        <>
+          <span className="text-warm">
+            โควตาคงเหลือ <b className={cn((q.quota ?? 0) < 20 ? "text-amber" : "text-gold")}>{q.quota ?? "—"}</b> สลิป
+          </span>
+          {!!q.specialQuota && <span className="text-warm/70">โควตาพิเศษ {q.specialQuota}</span>}
+          {!!q.overQuota && <span className="text-red-200">เกินโควตา {q.overQuota}</span>}
+          {q.endDate && <span className="text-xs text-warm/50">แพ็กเกจหมดอายุ {q.endDate}</span>}
+        </>
+      )}
+      {data && !q && !data.error && <span className="text-xs text-warm/50">ผู้ให้บริการนี้ไม่มี API แสดงโควตา</span>}
+    </Card>
+  );
 }
 
 export function PaymentsAdmin() {
   const [status, setStatus] = useState<"all" | "paid" | "pending" | "failed" | "cancelled" | "expired" | "refunded">("all");
   const [page, setPage] = useState(0);
-  const { data, error } = useAdminList<{ payments: AdminPayment[]; total: number; pageSize: number }>(`/api/admin/payments?status=${status}&page=${page}`);
+  const [approving, setApproving] = useState<string | null>(null);
+  const { data, error, reload } = useAdminList<{ payments: AdminPayment[]; total: number; pageSize: number }>(`/api/admin/payments?status=${status}&page=${page}`);
+
+  const approve = async (p: AdminPayment) => {
+    if (!window.confirm(`ยืนยันว่าตรวจสลิปในแอปธนาคารแล้ว ได้รับเงิน ${formatTHB(Number(p.amount))} จริง และต้องการปล่อยโคม?`)) return;
+    setApproving(p.id);
+    try {
+      await apiFetch(`/api/admin/payments/${p.id}`, { method: "POST", json: { action: "approve" } });
+      toast.success("อนุมัติแล้ว โคมถูกปล่อย");
+      reload();
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setApproving(null);
+    }
+  };
+
   return (
     <div className="space-y-4">
+      <SlipQuotaCard />
       <Filter
         value={status}
         onChange={(v) => {
@@ -274,7 +390,7 @@ export function PaymentsAdmin() {
       {!data && !error && <Skeleton className="h-60" />}
       {data && (
         <Card className="overflow-x-auto p-0">
-          <table className="w-full min-w-[820px] text-left text-sm">
+          <table className="w-full min-w-[960px] text-left text-sm">
             <thead className="text-xs text-warm/50">
               <tr className="border-b border-white/5">
                 <th className="px-4 py-3 font-normal">วันที่</th>
@@ -282,26 +398,48 @@ export function PaymentsAdmin() {
                 <th className="px-4 py-3 font-normal">ยอด</th>
                 <th className="px-4 py-3 font-normal">ช่องทาง</th>
                 <th className="px-4 py-3 font-normal">สถานะ</th>
-                <th className="px-4 py-3 font-normal">Stripe Session / Payment Intent</th>
+                <th className="px-4 py-3 font-normal">สลิป (transRef · ยอด · ผู้รับ) / Stripe</th>
               </tr>
             </thead>
             <tbody>
-              {data.payments.map((p) => (
-                <tr key={p.id} className="border-b border-white/5 last:border-0 align-top">
-                  <td className="px-4 py-3 text-warm/70">{formatDateTime(p.created_at)}</td>
-                  <td className="px-4 py-3 text-warm">{p.package_name}</td>
-                  <td className="px-4 py-3 text-warm">{formatTHB(Number(p.amount), p.currency)}</td>
-                  <td className="px-4 py-3 text-warm/70">{p.payment_method ?? "—"}</td>
-                  <td className="px-4 py-3">
-                    <Badge variant={statusVariant(p.payment_status)}>{p.payment_status}</Badge>
-                    {p.failure_reason && <p className="mt-1 text-xs text-warm/40">{p.failure_reason}</p>}
-                  </td>
-                  <td className="px-4 py-3 font-mono text-[11px] text-warm/50">
-                    <p className="max-w-64 truncate">{p.stripe_session_id ?? "—"}</p>
-                    <p className="max-w-64 truncate">{p.stripe_payment_intent_id ?? ""}</p>
-                  </td>
-                </tr>
-              ))}
+              {data.payments.map((p) => {
+                const slips = p.slips ?? [];
+                const canApprove = p.payment_method === "promptpay_slip" && p.payment_status !== "paid" && p.payment_status !== "refunded" && slips.length > 0;
+                return (
+                  <tr key={p.id} className="border-b border-white/5 last:border-0 align-top">
+                    <td className="px-4 py-3 text-warm/70">{formatDateTime(p.created_at)}</td>
+                    <td className="px-4 py-3 text-warm">{p.package_name}</td>
+                    <td className="px-4 py-3 text-warm">{formatTHB(Number(p.amount), p.currency)}</td>
+                    <td className="px-4 py-3 text-warm/70">{p.payment_method === "promptpay_slip" ? "พร้อมเพย์ + สลิป" : (p.payment_method ?? "—")}</td>
+                    <td className="px-4 py-3">
+                      <Badge variant={statusVariant(p.payment_status)}>{p.payment_status}</Badge>
+                      {p.failure_reason && <p className="mt-1 text-xs text-warm/40">{p.failure_reason}</p>}
+                      {canApprove && (
+                        <Button size="sm" variant="outline" className="mt-2" disabled={approving === p.id} onClick={() => void approve(p)}>
+                          อนุมัติเอง
+                        </Button>
+                      )}
+                    </td>
+                    <td className="px-4 py-3">
+                      {slips.length > 0 ? (
+                        <div className="space-y-2">
+                          {slips.slice(0, 3).map((s) => (
+                            <SlipCell key={s.id} slip={s} />
+                          ))}
+                          {slips.length > 3 && <p className="text-[11px] text-warm/40">+ อีก {slips.length - 3} สลิป</p>}
+                        </div>
+                      ) : p.stripe_session_id ? (
+                        <div className="font-mono text-[11px] text-warm/50">
+                          <p className="max-w-64 truncate">{p.stripe_session_id}</p>
+                          <p className="max-w-64 truncate">{p.stripe_payment_intent_id ?? ""}</p>
+                        </div>
+                      ) : (
+                        <span className="text-xs text-warm/30">—</span>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </Card>

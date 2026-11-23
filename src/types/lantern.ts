@@ -89,6 +89,8 @@ export interface LanternVisual {
   /** Any URL the browser can load (signed URL, data: URL, blob: URL) */
   imageSrc: string | null;
   drawingSrc: string | null;
+  /** photo / drawing on the other walls (older lanterns: none – the front carries the art) */
+  faces?: LanternFaces;
 }
 
 /** Lantern as returned by the public API */
@@ -124,3 +126,31 @@ export interface FestivalStats {
   activeLanterns: number;
   updatedAt: string;
 }
+
+/* ------------------------------------------------------------------ per-face art */
+
+/** Paper walls of a lantern. The box has four; heart / moon / rabbit have a front and a back panel. */
+export const LANTERN_FACE_IDS = ["front", "right", "back", "left"] as const;
+export type LanternFaceId = (typeof LANTERN_FACE_IDS)[number];
+/** Walls that can carry their own photo / drawing besides the front (front art lives in imageSrc / drawingSrc) */
+export type ExtraFaceId = Exclude<LanternFaceId, "front">;
+export const EXTRA_FACE_IDS = ["right", "back", "left"] as const satisfies readonly ExtraFaceId[];
+export const isExtraFaceId = (v: string): v is ExtraFaceId => (EXTRA_FACE_IDS as readonly string[]).includes(v);
+
+/** Walls a shape has, in browsing order (front first) */
+export function facesForShape(shape: LanternShapeId | null | undefined): LanternFaceId[] {
+  return !shape || shape === "box" ? ["front", "right", "back", "left"] : ["front", "back"];
+}
+
+/** Photo and / or drawing printed on one wall */
+export interface FaceArt {
+  imageSrc: string | null;
+  imageConfig: ImageConfig | null;
+  drawingSrc: string | null;
+}
+
+/** Art on the walls other than the front. Stored in lanterns.drawing_data.faces (see lantern-service) */
+export type LanternFaces = Partial<Record<ExtraFaceId, FaceArt>>;
+
+/** Thai wall names for the studio and the viewers */
+export const FACE_LABEL_TH: Record<LanternFaceId, string> = { front: "ด้านหน้า", right: "ด้านขวา", back: "ด้านหลัง", left: "ด้านซ้าย" };

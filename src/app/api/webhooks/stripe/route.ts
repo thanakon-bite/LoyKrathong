@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import type Stripe from "stripe";
 import { serverEnv } from "@/lib/env";
-import { getStripe } from "@/lib/stripe/server";
+import { getStripe, stripeCrypto } from "@/lib/stripe/server";
 import { handleStripeEvent } from "@/services/payment-service";
 import { logError } from "@/services/logger";
 
@@ -18,7 +18,7 @@ export async function POST(req: Request) {
     const signature = req.headers.get("stripe-signature");
     if (!signature) return NextResponse.json({ error: "missing signature" }, { status: 400 });
     const raw = await req.text();
-    event = getStripe().webhooks.constructEvent(raw, signature, serverEnv("STRIPE_WEBHOOK_SECRET"));
+    event = await getStripe().webhooks.constructEventAsync(raw, signature, serverEnv("STRIPE_WEBHOOK_SECRET"), undefined, stripeCrypto);
   } catch (err) {
     // console only: anyone can POST here, so this must not write a database row per request
     console.warn("[stripe-webhook] signature verification failed:", String(err).slice(0, 200));

@@ -93,6 +93,14 @@ export class FestivalEngine {
   private view: View = computeView(1, 1);
   private cam: Camera = { x: 0, z: 0 };
   private camTarget: Camera = { x: 0, z: 0 };
+  /**
+   * 360° orbit: the world is rotated around a pivot `orbitR` in front of the camera before projecting.
+   * Drag sideways to orbit; drag up/down or pinch to glide over the water.
+   */
+  private orbit = 0;
+  private orbitTarget = 0;
+  private orbitVel = 0;
+  private orbitR = 6;
   private dpr = 1;
   private raf = 0;
   private last = 0;
@@ -207,6 +215,11 @@ export class FestivalEngine {
     this.userCam = { x: 0, z: 0 };
     this.camVel = { x: 0, z: 0 };
     this.followEngaged = false;
+    // turn back the short way round
+    const full = Math.PI * 2;
+    this.orbit = ((((this.orbit + Math.PI) % full) + full) % full) - Math.PI;
+    this.orbitTarget = 0;
+    this.orbitVel = 0;
   }
 
   /** Focus (zoom into) a lantern and pause its motion; null resumes */
@@ -365,7 +378,7 @@ export class FestivalEngine {
       isInView: (l) => {
         const e = l as Entity;
         const pose = lanternPose(e.id, this.ageOf(e, now));
-        const p = projectPoint(this.view, this.cam, pose.x, pose.z);
+        const p = this.project(pose.x, pose.z);
         return !!p && p.sx > -this.view.w * 0.1 && p.sx < this.view.w * 1.1;
       },
     });
@@ -477,10 +490,32 @@ export class FestivalEngine {
     this.render(now);
   };
 
+  /** world (x, z) → screen, after the 360° orbit around the pivot in front of the camera */
+  private project(x: number, z: number) {
+    if (this.orbit === 0) return projectPoint(this.view, this.cam, x, z);
+    const px = this.cam.x;
+    const pz = this.cam.z + this.orbitR;
+    const c = Math.cos(this.orbit);
+    const sn = Math.sin(this.orbit);
+    const dx = x - px;
+    const dz = z - pz;
+    return projectPoint(this.view, this.cam, px + dx * c + dz * sn, pz - dx * sn + dz * c);
+  }
+
   private updateCamera(dt: number, now: number) {
     const focus = this.focusId ? this.entities.get(this.focusId) : null;
+    // orbit with inertia; the pivot sits on the focused lantern while a card is open
+    if (this.pointers.size === 0 && this.orbitVel) {
+      this.orbitTarget += this.orbitVel * dt;
+      this.orbitVel *= Math.exp(-dt * 3);
+      if (Math.abs(this.orbitVel) < 0.002) this.orbitVel = 0;
+    }
+    this.orbit += (this.orbitTarget - this.orbit) * (1 - Math.exp(-dt * 10));
+    if (Math.abs(this.orbit) < 1e-5 && this.orbitTarget === 0) this.orbit = 0;
+    const pivotTarget = focus?.pose ? 2.4 : 6;
+    this.orbitR += (pivotTarget - this.orbitR) * (1 - Math.exp(-dt * 2.2));
     if (focus?.pose) {
-      this.camTarget = { x: focus.pose.x, z: focus.pose.z - 2.4 };
+      this.camTarget = { x: focus.pose.x, z: focus.pose.z - this.orbitR };
     } else if (this.manual) {
       // free camera with inertia
       if (this.pointers.size === 0) {
@@ -498,7 +533,7 @@ export class FestivalEngine {
         if (e.ownerId === this.userId && !e.removed && e.target > 0 && e.pose && (!mine || e.releasedAtMs > mine.releasedAtMs)) mine = e;
       }
       if (mine?.pose) {
-        const p = projectPoint(this.view, this.cam, mine.pose.x, mine.pose.z);
+        const p = this.project(mine.pose.x, mine.pose.z);
         const outOfView = !p || p.sx < this.view.w * 0.18 || p.sx > this.view.w * 0.82 || p.zEff > 9;
         if (outOfView) this.followEngaged = true;
         if (this.followEngaged) {
@@ -533,7 +568,7 @@ export class FestivalEngine {
     const projected: Array<{ e: Entity; sx: number; sy: number; size: number; zEff: number }> = [];
     for (const e of this.drawOrder) {
       const pose = e.pose!;
-      const p = projectPoint(v, this.cam, pose.x, pose.z);
+      const p = this.project(pose.x, pose.z);
       if (!p) {
         e.rect = null;
         continue;
@@ -570,7 +605,7 @@ export class FestivalEngine {
         x: sx,
         y: sy,
         size,
-        yaw: pose.yaw,
+        yaw: pose.yaw + this.orbit,
         pitch: pitchFor(v, zEff),
         roll: pose.roll,
         glow: pose.glow,
@@ -607,11 +642,11 @@ export class FestivalEngine {
       void document.fonts.load('400 13px "Sriracha"', "กขค").catch(() => undefined);
     }
     const fontsReady = typeof document === "undefined" || !document.fonts || document.fonts.check('13px "Sriracha"', "ก");
-    const max = this.quality === "high" ? 6 : 4;
+    const max = this.quality === "high" ? 8 : 5;
     const candidates = projected
       .filter(({ e, size }) => {
         const wish = e.visual?.wishMessage;
-        return wish && e.doodleSeed == null && e.ownerId !== this.userId && e.rect && size >= 30 && e.vis > 0.6 && (e.pose?.alpha ?? 0) > 0.5 && e.id !== this.focusId;
+        return wish && e.doodleSeed == null && e.ownerId !== this.userId && e.rect && size >= 22 && e.vis > 0.6 && (e.pose?.alpha ?? 0) > 0.5 && e.id !== this.focusId;
       })
       .sort((a, b) => b.size - a.size)
       .slice(0, max * 2);
@@ -699,6 +734,7 @@ export class FestivalEngine {
     if (this.pointers.size === 1) {
       this.dragDistance = 0;
       this.camVel = { x: 0, z: 0 };
+      this.orbitVel = 0;
       this.lastMoveT = performance.now();
     }
     if (this.pointers.size === 2) {
@@ -718,15 +754,19 @@ export class FestivalEngine {
     ev.preventDefault();
     this.startManual();
     this.userCam.z -= ev.deltaY * 0.01;
-    this.userCam.x += ev.deltaX * this.worldPerPx;
+    this.orbitTarget += ev.deltaX * 0.004;
     this.clampUserCam();
   };
 
   private onKeyDown = (ev: KeyboardEvent) => {
     if (this.focusId) return;
+    if (ev.key === "ArrowLeft" || ev.key === "ArrowRight") {
+      ev.preventDefault();
+      this.startManual();
+      this.orbitTarget += ev.key === "ArrowLeft" ? -0.25 : 0.25;
+      return;
+    }
     const moves: Record<string, [number, number]> = {
-      ArrowLeft: [-0.6, 0],
-      ArrowRight: [0.6, 0],
       ArrowUp: [0, 0.9],
       ArrowDown: [0, -0.9],
     };
@@ -761,16 +801,17 @@ export class FestivalEngine {
       this.dragDistance += Math.abs(dx) + Math.abs(dy);
       if (this.dragDistance > 8) {
         this.startManual();
-        // grab-the-water feel: drag left → view moves right, drag down → glide forward
-        const sx = -dx * this.worldPerPx;
+        // drag sideways → orbit 360° around the river; drag down → glide forward
+        const turn = (dx / Math.max(1, this.view.w)) * Math.PI * 1.6;
         const sz = (dy / Math.max(1, this.view.h)) * 14;
-        this.userCam.x += sx;
+        this.orbitTarget += turn;
         this.userCam.z += sz;
         this.clampUserCam();
         const now = performance.now();
         const dt = Math.max(0.008, (now - this.lastMoveT) / 1000);
         this.lastMoveT = now;
-        this.camVel = { x: (sx / dt) * 0.6, z: (sz / dt) * 0.6 };
+        this.orbitVel = (turn / dt) * 0.5;
+        this.camVel = { x: 0, z: (sz / dt) * 0.6 };
         this.canvas.style.cursor = "grabbing";
       }
       return;

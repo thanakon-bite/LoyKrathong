@@ -40,3 +40,31 @@ export interface CheckoutStatus {
   lanternId: string | null;
   lanternStatus: string | null;
 }
+
+/* ---------------------------------------------------------------- PromptPay QR + slip */
+
+export type SlipStatus = "processing" | "verified" | "rejected" | "error" | "pending_review";
+
+/** What the PromptPay payment page needs (amount/payload come from the server, never the browser) */
+export interface PromptPayOrder {
+  paymentId: string;
+  lanternId: string | null;
+  /** THB */
+  amount: number;
+  /** EMVCo PromptPay QR payload with the exact amount */
+  qrPayload: string;
+  /** shown under the QR so the payer can confirm who receives the money */
+  receiverName: string | null;
+  createdAt: string;
+  /** QR countdown end – a slip is still accepted a while after this */
+  expiresAt: string;
+  paymentStatus: PaymentStatus;
+  lanternStatus: string | null;
+  lastSlip: { status: SlipStatus; reason: string | null; message: string | null } | null;
+}
+
+export interface SlipResult {
+  status: "paid";
+  lanternId: string | null;
+  alreadyProcessed: boolean;
+}

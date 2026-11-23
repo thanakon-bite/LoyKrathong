@@ -28,7 +28,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
       .eq("id", id);
     if (error) throw new Error(error.message);
     await log("info", "admin", `catalog ${current.kind}:${current.code} price=${p.price} active=${p.isActive}`, { by: staff.email });
-    return noStore({ ok: true, note: p.price > 0 && p.price < MIN_PAID_TOTAL ? `ราคาต่ำกว่า ${MIN_PAID_TOTAL} บาท ลูกค้าต้องซื้อรวมให้ถึงขั้นต่ำของ Stripe` : null });
+    return noStore({ ok: true, note: p.price > 0 && p.price < MIN_PAID_TOTAL ? `ราคาต่ำกว่า ${MIN_PAID_TOTAL} บาท ลูกค้าต้องซื้อรวมให้ถึงยอดชำระขั้นต่ำ` : null });
   } catch (err) {
     return handleError(err, "PATCH /api/admin/catalog/[id]");
   }

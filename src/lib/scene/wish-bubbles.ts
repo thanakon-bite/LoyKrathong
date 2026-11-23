@@ -86,16 +86,10 @@ export function buildWishBubble(text: string): BubbleSprite | null {
   return { canvas: c, w: w + 4, h: h + 4 };
 }
 
-/** One full show cycle of a bubble (s) and how long it is visible within it */
-export const BUBBLE_PERIOD = 12;
-export const BUBBLE_SHOW = 7.5;
-
-/** Visibility 0…1 and rise (px) of a bubble at `time` – staggered per lantern by `seed` */
+/**
+ * Bubbles stay visible all the time (owner's request) and just bob gently above their lantern.
+ * `rise` is in CSS px; the per-lantern seed keeps neighbours out of sync.
+ */
 export function bubblePhase(time: number, seed: number): { alpha: number; rise: number } {
-  const t = (((time + (seed % 997) * 0.731) % BUBBLE_PERIOD) + BUBBLE_PERIOD) % BUBBLE_PERIOD;
-  if (t > BUBBLE_SHOW) return { alpha: 0, rise: 0 };
-  const fadeIn = Math.min(1, t / 0.9);
-  const fadeOut = Math.min(1, (BUBBLE_SHOW - t) / 1.1);
-  const a = Math.min(fadeIn, fadeOut);
-  return { alpha: a * a * (3 - 2 * a), rise: t * 3.2 };
+  return { alpha: 1, rise: 4 + Math.sin(time * 0.9 + (seed % 997) * 0.731) * 3 };
 }

@@ -10,3 +10,9 @@ next-env.d.ts
 .vercel
 .DS_Store
 .netlify
+
+# Cloudflare Workers (OpenNext)
+.open-next
+.wrangler
+.dev.vars
+.env.local.cf-build-hidden

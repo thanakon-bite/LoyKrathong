@@ -1,4 +1,4 @@
-import { Suspense } from "react";
+import { cache, Suspense } from "react";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
@@ -9,19 +9,18 @@ import { Button } from "@/components/ui/button";
 import { isSupabaseConfigured } from "@/lib/env";
 import { uuidSchema } from "@/lib/security/validation";
 import { getActiveLantern } from "@/services/lantern-service";
-import { parseClipParams } from "@/lib/share/clip-music";
-import { SharedLanternScene } from "@/components/share/shared-lantern-scene";
 
 export const dynamic = "force-dynamic";
 
 type Params = { params: Promise<{ id: string }> };
-type PageProps = Params & { searchParams: Promise<Record<string, string | string[] | undefined>> };
+type PageProps = Params;
 
-async function load(id: string) {
+/** cached per request – metadata and the page share one database read */
+const load = cache(async (id: string) => {
   if (!uuidSchema.safeParse(id).success) return undefined;
   if (!isSupabaseConfigured()) return null;
   return getActiveLantern(id).catch(() => null);
-}
+});
 
 export async function generateMetadata({ params }: Params): Promise<Metadata> {
   const { id } = await params;
@@ -41,14 +40,9 @@ export async function generateMetadata({ params }: Params): Promise<Metadata> {
   };
 }
 
-/** Deep link from a shared postcard (festival focused on this lantern) or a song link (moonlit scene) */
-export default async function SharedLanternPage({ params, searchParams }: PageProps) {
+/** Deep link from a shared postcard: opens the festival focused on this lantern */
+export default async function SharedLanternPage({ params }: PageProps) {
   const { id } = await params;
-  const query = await searchParams;
-  const music = parseClipParams((k) => {
-    const v = query[k];
-    return Array.isArray(v) ? v[0] : v;
-  });
   const lantern = await load(id);
   if (lantern === undefined) notFound();
 
@@ -72,8 +66,6 @@ export default async function SharedLanternPage({ params, searchParams }: PagePr
     );
   }
 
-  // "แนบเพลง" link: a dedicated moonlit scene with only this krathong and the owner's song
-  if (music) return <SharedLanternScene lantern={lantern} music={music} />;
 
   return (
     <Suspense>

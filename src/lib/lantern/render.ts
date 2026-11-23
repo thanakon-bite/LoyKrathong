@@ -1,11 +1,11 @@
-import type { EffectId, LanternDesignId, LanternShapeId } from "@/types/lantern";
+import type { EffectId, LanternDesignId, LanternFaceId, LanternShapeId } from "@/types/lantern";
 import { fiberCanvas, glowSprite } from "./render-sprites";
 import { drawEffects, drawOfferingBadge } from "./effects";
 
 export { glowSprite };
 import { mixHex, rgba } from "@/lib/utils";
 import { LANTERN_DESIGNS } from "./designs";
-import { FACE_ASPECT, TEX_H, TEX_W, type FaceTextures } from "./texture";
+import { FACE_ASPECT, TEX_H, TEX_W, textureForFace, type FaceTextures } from "./texture";
 import { drawKrathongBack, drawKrathongFront, KRATHONG_RADIUS, KRATHONG_TOP, type KrathongParams } from "./krathong-base";
 import { insidePoly, panelToTexture, SHAPES, shapePanel, traceShape, type ShapeDef } from "./shapes";
 
@@ -72,7 +72,7 @@ function project(p: V3, cosY: number, sinY: number, cosP: number, sinP: number, 
 }
 
 interface Face {
-  key: "front" | "right" | "back" | "left";
+  key: LanternFaceId;
   /** outward normal in object space (x, z) */
   n: [number, number];
   tl: V3;
@@ -347,8 +347,8 @@ function drawBoxBody(ctx: CanvasRenderingContext2D, b: BodyCtx) {
     const bl = P(f.bl);
     const br: V2 = [tr[0] + bl[0] - tl[0], tr[1] + bl[1] - tl[1]];
 
-    // back face mirrors the side writing so a full 360° spin never shows an empty wall
-    const tex = p.textures ? (f.key === "front" ? p.textures.front : p.textures.side) : null;
+    // walls without art of their own share the side writing so a full 360° spin never shows an empty wall
+    const tex = p.textures ? textureForFace(p.textures, f.key) : null;
     const baked = bakedFace(p.design, p.light, simple ? null : tex);
     ctx.save();
     faceTransform(ctx, tl, tr, bl);
@@ -476,7 +476,7 @@ function drawShapeBody(ctx: CanvasRenderingContext2D, b: BodyCtx, s: ShapeDef) {
   }
 
   // ---------- panel facing the camera ----------
-  const tex = !simple && p.textures ? (frontSide ? p.textures.front : p.textures.side) : null;
+  const tex = !simple && p.textures ? textureForFace(p.textures, frontSide ? "front" : "back") : null;
   const baked = shapePanel(s, p.design, p.light, tex, frontSide ? "front" : "back", simple);
   const sgn = frontSide ? 1 : -1;
   ctx.save();
@@ -584,7 +584,7 @@ export function drawReflection(
 }
 
 export interface FacePick {
-  face: "front" | "right" | "back" | "left";
+  face: LanternFaceId;
   /** point in face-texture space (0…TEX_W, 0…TEX_H) */
   u: number;
   v: number;

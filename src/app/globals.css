@@ -103,3 +103,21 @@
     max-height: calc(100dvh - 1.5rem - var(--nf-badge)) !important;
   }
 }
+
+/* Lantern studio on phones / tablets is a full-screen app (fixed layout sized in svh):
+   the page behind it must never scroll or rubber-band. */
+@media (max-width: 1023px) {
+  html.studio-app,
+  html.studio-app body {
+    overflow: hidden;
+    overscroll-behavior: none;
+  }
+}
+
+/* horizontal carousels (studio pickers) – still swipeable, no scrollbar */
+.no-scrollbar {
+  scrollbar-width: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}

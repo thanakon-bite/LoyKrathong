@@ -1,8 +1,24 @@
 "use client";
 
 import { useCallback, useSyncExternalStore } from "react";
-import type { EffectId, ImageConfig, LanternDesignId, LanternVisual, TextConfig, LanternShapeId } from "@/types/lantern";
+import { toast } from "sonner";
+import { EXTRA_FACE_IDS, facesForShape, type EffectId, type ExtraFaceId, type ImageConfig, type LanternDesignId, type LanternFaceId, type LanternFaces, type LanternVisual, type TextConfig, type LanternShapeId } from "@/types/lantern";
 import { DEFAULT_TEXT_CONFIG, LANTERN_DESIGNS } from "@/lib/lantern/designs";
+
+/** Photo / drawing of one of the other walls (the front keeps the top-level fields) */
+export interface FaceDraft {
+  imageDataUrl: string | null;
+  imageConfig: ImageConfig;
+  drawingDataUrl: string | null;
+}
+
+/** Upload cache of one asset pair (key = hash of the data URL) */
+export interface AssetUploads {
+  imageKey?: string;
+  imagePath?: string;
+  drawingKey?: string;
+  drawingPath?: string;
+}
 
 export interface LanternDraft {
   design: LanternDesignId;
@@ -23,8 +39,38 @@ export interface LanternDraft {
   offering: number;
   /** Idempotency key for the release request – the same key is reused on retry */
   requestId: string;
-  /** Cache of already uploaded assets (key = hash of the data URL) */
-  uploads: { imageKey?: string; imagePath?: string; drawingKey?: string; drawingPath?: string };
+  /** art on the other walls (only the walls of the chosen shape are used) */
+  faces: Partial<Record<ExtraFaceId, FaceDraft>>;
+  /** Cache of already uploaded assets (key = hash of the data URL); faces = the other walls */
+  uploads: AssetUploads & { faces?: Partial<Record<ExtraFaceId, AssetUploads>> };
+}
+
+export const DEFAULT_IMAGE_CONFIG: ImageConfig = { x: 0, y: 0.18, scale: 0.55 };
+
+export const emptyFaceDraft = (): FaceDraft => ({ imageDataUrl: null, imageConfig: { ...DEFAULT_IMAGE_CONFIG }, drawingDataUrl: null });
+
+/** Photo / drawing of any wall, front included */
+export function faceDraft(d: LanternDraft, face: LanternFaceId): FaceDraft {
+  if (face === "front") return { imageDataUrl: d.imageDataUrl, imageConfig: d.imageConfig, drawingDataUrl: d.drawingDataUrl };
+  return d.faces?.[face] ?? emptyFaceDraft();
+}
+
+/** Draft patch that changes one wall's photo / drawing */
+export function patchFace(d: LanternDraft, face: LanternFaceId, patch: Partial<FaceDraft>): Partial<LanternDraft> {
+  if (face === "front") return patch;
+  const next = { ...faceDraft(d, face), ...patch };
+  const faces = { ...d.faces };
+  if (next.imageDataUrl || next.drawingDataUrl) faces[face] = next;
+  else delete faces[face];
+  return { faces };
+}
+
+/** Walls of the chosen shape that carry a photo or a drawing */
+export function facesWithArt(d: LanternDraft): LanternFaceId[] {
+  return facesForShape(d.shape).filter((f) => {
+    const a = faceDraft(d, f);
+    return Boolean(a.imageDataUrl || a.drawingDataUrl);
+  });
 }
 
 const STORAGE_KEY = "loykrathong:draft:v1";
@@ -39,12 +85,13 @@ export function newDraft(): LanternDraft {
     blessingMessage: "",
     extraMessage: "",
     textConfig: { ...DEFAULT_TEXT_CONFIG },
-    imageConfig: { x: 0, y: 0.18, scale: 0.55 },
+    imageConfig: { ...DEFAULT_IMAGE_CONFIG },
     imageDataUrl: null,
     drawingDataUrl: null,
     effects: [],
     offering: 0,
     requestId: crypto.randomUUID(),
+    faces: {},
     uploads: {},
   };
 }
@@ -68,13 +115,24 @@ function load(): LanternDraft {
 }
 
 let saveTimer: ReturnType<typeof setTimeout> | null = null;
+let quotaWarned = false;
 function persist() {
   if (saveTimer) clearTimeout(saveTimer);
   saveTimer = setTimeout(() => {
     try {
       sessionStorage.setItem(STORAGE_KEY, JSON.stringify(state));
     } catch {
-      // quota exceeded (large image) – keep the draft in memory only
+      // quota exceeded (several photos / drawings – data URLs) – keep the draft in memory only.
+      // Drop the stale copy so a reload never brings back an older version of the design.
+      try {
+        sessionStorage.removeItem(STORAGE_KEY);
+      } catch {
+        /* ignore */
+      }
+      if (!quotaWarned) {
+        quotaWarned = true;
+        toast.warning("รูปและภาพวาดบนโคมมีขนาดรวมใหญ่ แบบร่างจะไม่ถูกบันทึกหากรีเฟรชหน้า กรุณาปล่อยโคมโดยไม่ปิดหน้านี้");
+      }
     }
   }, 250);
 }
@@ -137,9 +195,22 @@ export function draftToVisual(d: LanternDraft): LanternVisual {
     imageConfig: d.imageDataUrl ? d.imageConfig : null,
     imageSrc: d.imageDataUrl,
     drawingSrc: d.drawingDataUrl,
+    faces: draftFacesToVisual(d),
   };
 }
 
+/** The other walls' art as LanternVisual.faces (walls the shape doesn't have are left out) */
+export function draftFacesToVisual(d: LanternDraft): LanternFaces {
+  const walls = facesForShape(d.shape);
+  const faces: LanternFaces = {};
+  for (const f of EXTRA_FACE_IDS) {
+    const a = d.faces?.[f];
+    if (!a || !walls.includes(f) || !(a.imageDataUrl || a.drawingDataUrl)) continue;
+    faces[f] = { imageSrc: a.imageDataUrl, imageConfig: a.imageDataUrl ? a.imageConfig : null, drawingSrc: a.drawingDataUrl };
+  }
+  return faces;
+}
+
 export function draftHasContent(d: LanternDraft) {
-  return Boolean(d.wishMessage.trim() || d.blessingMessage.trim() || d.extraMessage.trim() || d.imageDataUrl || d.drawingDataUrl);
+  return Boolean(d.wishMessage.trim() || d.blessingMessage.trim() || d.extraMessage.trim() || facesWithArt(d).length);
 }

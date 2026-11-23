@@ -30,10 +30,12 @@ describe("à-la-carte pricing", () => {
     expect(() => quote(off, { design: "classic-golden", effects: [], offering: 10 })).toThrow(PricingError);
   });
 
-  it("flags totals below the Stripe minimum", () => {
+  it("flags totals below the minimum paid total (1 THB for PromptPay)", () => {
     expect(totalProblem(0)).toBeNull();
-    expect(totalProblem(5)).toMatch(/ขั้นต่ำ 10/);
-    expect(totalProblem(10)).toBeNull();
+    expect(totalProblem(0.5)).toMatch(/ขั้นต่ำ 1 บาท/);
+    expect(totalProblem(1)).toBeNull();
+    expect(totalProblem(5)).toBeNull();
+    expect(totalProblem(5, 10)).toMatch(/ขั้นต่ำ 10/);
   });
 
   it("rounds satang correctly", () => {

@@ -4,6 +4,6 @@ import nextTs from "eslint-config-next/typescript";
 const config = [
   ...nextVitals,
   ...nextTs,
-  { ignores: [".next/**", ".netlify/**", "node_modules/**", "next-env.d.ts"] },
+  { ignores: [".next/**", ".netlify/**", ".open-next/**", ".wrangler/**", "cloudflare/**", "node_modules/**", "next-env.d.ts"] },
 ];
 export default config;

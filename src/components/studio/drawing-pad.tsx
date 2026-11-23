@@ -1,33 +1,49 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Brush, Check, Eraser, Maximize2, Pencil, Redo2, Trash2, Undo2 } from "lucide-react";
-import type { LanternVisual } from "@/types/lantern";
-import { buildFaceTextures, ensureLanternFonts, loadImage, TEX_H, TEX_W } from "@/lib/lantern/texture";
+import { Brush, Check, Eraser, Maximize2, Minimize2, Redo2, Trash2, Undo2, ZoomIn, ZoomOut } from "lucide-react";
+import { FACE_LABEL_TH, type LanternFaceId, type LanternVisual } from "@/types/lantern";
+import { buildFaceLayer, ensureLanternFonts, loadImage, TEX_H, TEX_W, textUnderArt } from "@/lib/lantern/texture";
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
-import { cn } from "@/lib/utils";
+import { clamp, cn } from "@/lib/utils";
 import { paintPaper } from "./face-paper";
 
 const PEN_COLORS = ["#5b2d0c", "#b4232c", "#e0457b", "#f08c00", "#1b6e3c", "#1b3f8a", "#6b2fa0", "#000000", "#ffffff"];
 const MAX_HISTORY = 30;
+const MAX_ZOOM = 6;
 
 interface Props {
-  /** Lantern content shown underneath (text + image), without the drawing itself */
+  /** The lantern as it is now (the drawing of `face` itself is ignored – it lives on the ink canvas) */
   visual: LanternVisual;
+  /** wall being drawn on */
+  face: LanternFaceId;
   value: string | null;
   onChange: (dataUrl: string | null) => void;
   /** false while the tab is hidden – skips re-rendering the background on every keystroke */
   active?: boolean;
+  /** shown above the tools (the wall picker) */
+  header?: React.ReactNode;
 }
 
+interface View {
+  z: number;
+  x: number;
+  y: number;
+}
+
+type Pt = { x: number; y: number };
+
 /**
- * Freehand drawing directly on the front face of the lantern.
- * Supports mouse, touch and pen (pressure), with undo / redo / clear.
+ * Freehand drawing directly on one wall of the lantern. Mouse, touch and pen (pressure), undo / redo / clear.
+ * One finger always draws; two fingers pinch-zoom and pan the paper (a second finger cancels the stroke
+ * the first one started). Strokes are mapped through the zoomed canvas rect, so they land right at any zoom.
  */
-export function DrawingPad({ visual, value, onChange, active = true }: Props) {
+export function DrawingPad({ visual, face, value, onChange, active = true, header }: Props) {
   const baseRef = useRef<HTMLCanvasElement>(null);
   const drawRef = useRef<HTMLCanvasElement>(null);
+  const viewportRef = useRef<HTMLDivElement>(null);
+  const paperRef = useRef<HTMLDivElement>(null);
   const [tool, setTool] = useState<"pen" | "eraser">("pen");
   const [color, setColor] = useState(PEN_COLORS[1]);
   const [size, setSize] = useState(8);
@@ -38,54 +54,132 @@ export function DrawingPad({ visual, value, onChange, active = true }: Props) {
   const drawing = useRef(false);
   const last = useRef<{ x: number; y: number; mx: number; my: number } | null>(null);
   const hasInk = useRef(Boolean(value));
-  /** full-screen drawing mode – on phones the canvas only takes touches here, so the page can still scroll */
+  const initialValue = useRef(value);
+  /** full-screen drawing mode (bigger paper on phones) */
   const [full, setFull] = useState(false);
-  // two-finger pinch: spread = open full screen, pinch together = close (a second finger also cancels the stroke)
-  const fingers = useRef(new Map<number, { x: number; y: number }>());
-  const pinchStart = useRef<number | null>(null);
-  const fingerSpread = () => {
-    const [a, b] = [...fingers.current.values()];
-    return a && b ? Math.hypot(a.x - b.x, a.y - b.y) : 0;
+
+  // ---------- zoom / pan (applied straight to the DOM while a gesture runs) ----------
+  const view = useRef<View>({ z: 1, x: 0, y: 0 });
+  const [zoomLabel, setZoomLabel] = useState(1);
+  const applyView = useCallback((v: View) => {
+    const vp = viewportRef.current;
+    if (!vp) return;
+    const W = vp.clientWidth;
+    const H = vp.clientHeight;
+    const z = clamp(v.z, 1, MAX_ZOOM);
+    const next = { z, x: clamp(v.x, W * (1 - z), 0), y: clamp(v.y, H * (1 - z), 0) };
+    view.current = next;
+    if (paperRef.current) paperRef.current.style.transform = `translate(${next.x}px, ${next.y}px) scale(${next.z})`;
+  }, []);
+  const commitZoom = () => setZoomLabel(Math.round(view.current.z * 10) / 10);
+  /** zoom by a factor around a point of the viewport */
+  const zoomAt = useCallback(
+    (factor: number, px: number, py: number) => {
+      const v = view.current;
+      const z = clamp(v.z * factor, 1, MAX_ZOOM);
+      const cx = (px - v.x) / v.z;
+      const cy = (py - v.y) / v.z;
+      applyView({ z, x: px - z * cx, y: py - z * cy });
+      setZoomLabel(Math.round(z * 10) / 10);
+    },
+    [applyView],
+  );
+  const zoomCentre = (factor: number) => {
+    const vp = viewportRef.current;
+    if (vp) zoomAt(factor, vp.clientWidth / 2, vp.clientHeight / 2);
   };
-  /** pinch out on the small (non full-screen) pad, from touch events because the canvas ignores touches there */
-  const outerPinch = useRef<number | null>(null);
-  const touchSpread = (t: React.TouchList) => (t.length >= 2 ? Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY) : 0);
+  const resetZoom = () => {
+    applyView({ z: 1, x: 0, y: 0 });
+    commitZoom();
+  };
+  // the paper size changes with full screen / rotation – keep the pan inside it
+  useEffect(() => {
+    const vp = viewportRef.current;
+    if (!vp) return;
+    const ro = new ResizeObserver(() => applyView(view.current));
+    ro.observe(vp);
+    return () => ro.disconnect();
+  }, [applyView]);
+
+  // ctrl / ⌘ + wheel (and trackpad pinch) zooms, a plain wheel pans once zoomed in – desktop
+  useEffect(() => {
+    const vp = viewportRef.current;
+    if (!vp) return;
+    const onWheel = (e: WheelEvent) => {
+      const r = vp.getBoundingClientRect();
+      if (e.ctrlKey || e.metaKey) {
+        e.preventDefault();
+        zoomAt(Math.exp(-e.deltaY * 0.01), e.clientX - r.left, e.clientY - r.top);
+      } else if (view.current.z > 1) {
+        e.preventDefault();
+        applyView({ ...view.current, x: view.current.x - e.deltaX, y: view.current.y - e.deltaY });
+      }
+    };
+    // iOS Safari: its own pinch gesture events must not zoom the page while zooming the paper
+    const stop = (e: Event) => e.preventDefault();
+    vp.addEventListener("wheel", onWheel, { passive: false });
+    vp.addEventListener("gesturestart", stop);
+    vp.addEventListener("gesturechange", stop);
+    return () => {
+      vp.removeEventListener("wheel", onWheel);
+      vp.removeEventListener("gesturestart", stop);
+      vp.removeEventListener("gesturechange", stop);
+    };
+  }, [applyView, zoomAt]);
+
   useEffect(() => {
     if (!full) return;
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && setFull(false);
     window.addEventListener("keydown", onKey);
-    return () => {
-      document.body.style.overflow = prev;
-      window.removeEventListener("keydown", onKey);
-    };
+    return () => window.removeEventListener("keydown", onKey);
   }, [full]);
-  const initialValue = useRef(value);
 
-  // base layer: paper + text + image (WYSIWYG with the lantern)
+  // ---------- base layer: paper + text + photo of this wall (WYSIWYG with the lantern) ----------
+  const art = face === "front" ? { imageSrc: visual.imageSrc, imageConfig: visual.imageConfig } : (visual.faces?.[face] ?? { imageSrc: null, imageConfig: null });
+  const visualRef = useRef(visual);
+  useEffect(() => {
+    visualRef.current = visual;
+  });
+  // everything the base depends on – but not the drawing itself, so a stroke never re-renders it
+  const baseKey = [
+    visual.design,
+    visual.color,
+    visual.shape,
+    visual.effects.join(","),
+    JSON.stringify(visual.textConfig),
+    visual.displayName,
+    visual.wishMessage,
+    visual.blessingMessage,
+    visual.extraMessage,
+    art.imageSrc?.length ?? 0,
+    art.imageSrc?.slice(-32) ?? "",
+    JSON.stringify(art.imageConfig),
+    face !== "front" && textUnderArt({ shape: visual.shape, faces: { ...visual.faces, [face]: { imageSrc: null, imageConfig: null, drawingSrc: "x" } } }),
+  ].join("|");
   useEffect(() => {
     if (!active) return;
     let cancelled = false;
     (async () => {
-      await ensureLanternFonts([visual.textConfig.font]);
-      const image = visual.imageSrc ? await loadImage(visual.imageSrc).catch(() => null) : null;
-      const tex = buildFaceTextures({ ...visual, drawingSrc: null }, { image });
+      const v = visualRef.current;
+      await ensureLanternFonts([v.textConfig.font]);
+      const src = face === "front" ? v.imageSrc : (v.faces?.[face]?.imageSrc ?? null);
+      const image = src ? await loadImage(src).catch(() => null) : null;
       const c = baseRef.current;
       if (cancelled || !c) return;
+      const layer = buildFaceLayer(face === "front" ? { ...v, drawingSrc: null } : v, face, { image });
       const ctx = c.getContext("2d")!;
-      paintPaper(ctx, visual.design, visual.color);
-      ctx.drawImage(tex.front, 0, 0);
+      paintPaper(ctx, v.design, v.color);
+      ctx.drawImage(layer, 0, 0);
     })();
     return () => {
       cancelled = true;
     };
-  }, [visual, active]);
+  }, [baseKey, face, active]);
 
   const ctx = () => drawRef.current!.getContext("2d", { willReadFrequently: true })!;
   const snapshot = () => ctx().getImageData(0, 0, TEX_W, TEX_H);
 
-  // load existing drawing once
+  // load the existing drawing once (the pad is re-mounted per wall)
   useEffect(() => {
     const c = drawRef.current;
     if (!c) return;
@@ -108,7 +202,8 @@ export function DrawingPad({ visual, value, onChange, active = true }: Props) {
     onChange(hasInk.current ? drawRef.current!.toDataURL("image/png") : null);
   }, [onChange]);
 
-  const pos = (e: React.PointerEvent | PointerEvent) => {
+  /** client point → texture space; the canvas rect already includes the zoom / pan transform */
+  const pos = (e: { clientX: number; clientY: number }) => {
     const r = drawRef.current!.getBoundingClientRect();
     return { x: ((e.clientX - r.left) / r.width) * TEX_W, y: ((e.clientY - r.top) / r.height) * TEX_H };
   };
@@ -131,21 +226,43 @@ export function DrawingPad({ visual, value, onChange, active = true }: Props) {
     last.current = { x, y, mx, my };
   };
 
-  const onPointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
+  // ---------- gestures ----------
+  const pointers = useRef(new Map<number, Pt>());
+  /** two-finger gesture state; `lock` keeps the last finger from drawing after a pinch until all are lifted */
+  const pinch = useRef<{ d0: number; m0: Pt; v0: View } | null>(null);
+  const lock = useRef(false);
+  const local = (e: { clientX: number; clientY: number }): Pt => {
+    const r = viewportRef.current!.getBoundingClientRect();
+    return { x: e.clientX - r.left, y: e.clientY - r.top };
+  };
+  const twoFingers = () => {
+    const [a, b] = [...pointers.current.values()];
+    return { d: Math.max(1, Math.hypot(a.x - b.x, a.y - b.y)), m: { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 } };
+  };
+
+  const cancelStroke = () => {
+    if (!drawing.current) return;
+    drawing.current = false;
+    last.current = null;
+    const top = undoStack.current[undoStack.current.length - 1];
+    if (top) ctx().putImageData(top, 0, 0);
+  };
+
+  const onPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (e.pointerType === "mouse" && e.button !== 0) return;
     e.preventDefault();
     e.currentTarget.setPointerCapture(e.pointerId);
-    fingers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
-    if (fingers.current.size >= 2) {
-      // second finger: this is a pinch, not a stroke – take back what the first finger just drew
-      if (drawing.current) {
-        drawing.current = false;
-        last.current = null;
-        const top = undoStack.current[undoStack.current.length - 1];
-        if (top) ctx().putImageData(top, 0, 0);
-      }
-      pinchStart.current = Math.max(1, fingerSpread());
+    pointers.current.set(e.pointerId, local(e));
+    if (pointers.current.size >= 2) {
+      // a second finger: this is a pinch, not a stroke – take back what the first finger just drew
+      cancelStroke();
+      lock.current = true;
+      const { d, m } = twoFingers();
+      pinch.current = { d0: d, m0: m, v0: { ...view.current } };
       return;
     }
+    if (lock.current) return;
+    drawRef.current?.focus({ preventScroll: true });
     drawing.current = true;
     const { x, y } = pos(e);
     last.current = { x, y, mx: x, my: y };
@@ -158,21 +275,21 @@ export function DrawingPad({ visual, value, onChange, active = true }: Props) {
     g.fill();
   };
 
-  const onPointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
-    if (fingers.current.has(e.pointerId)) fingers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
-    if (pinchStart.current !== null && fingers.current.size >= 2) {
-      const ratio = fingerSpread() / pinchStart.current;
-      if (full && ratio < 0.7) {
-        pinchStart.current = null;
-        setFull(false);
-      } else if (!full && ratio > 1.35) {
-        pinchStart.current = null;
-        setFull(true);
-      }
+  const onPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!pointers.current.has(e.pointerId)) return;
+    pointers.current.set(e.pointerId, local(e));
+    if (pinch.current && pointers.current.size >= 2) {
+      const { d, m } = twoFingers();
+      const { d0, m0, v0 } = pinch.current;
+      const z = clamp(v0.z * (d / d0), 1, MAX_ZOOM);
+      // keep the paper point that was under the fingers' midpoint under it (zoom + pan in one)
+      const cx = (m0.x - v0.x) / v0.z;
+      const cy = (m0.y - v0.y) / v0.z;
+      applyView({ z, x: m.x - z * cx, y: m.y - z * cy });
       return;
     }
     if (!drawing.current) return;
-    const events = e.nativeEvent.getCoalescedEvents?.() ?? [e.nativeEvent];
+    const events = e.nativeEvent.getCoalescedEvents?.() ?? [];
     for (const ev of events.length ? events : [e.nativeEvent]) {
       const { x, y } = pos(ev);
       strokeTo(x, y, ev.pointerType === "pen" ? ev.pressure : -1);
@@ -191,10 +308,15 @@ export function DrawingPad({ visual, value, onChange, active = true }: Props) {
     emit();
   };
 
-  const releaseFinger = (e: React.PointerEvent<HTMLCanvasElement>) => {
-    fingers.current.delete(e.pointerId);
-    if (fingers.current.size < 2) pinchStart.current = null;
-    end();
+  const release = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!pointers.current.delete(e.pointerId)) return;
+    if (pointers.current.size < 2 && pinch.current) {
+      pinch.current = null;
+      commitZoom();
+    }
+    if (e.type === "pointercancel") cancelStroke();
+    else end();
+    if (pointers.current.size === 0) lock.current = false;
   };
 
   const undo = () => {
@@ -235,57 +357,69 @@ export function DrawingPad({ visual, value, onChange, active = true }: Props) {
     }
   };
 
+  const toolBtn = (id: "pen" | "eraser", Icon: typeof Brush, label: string) => (
+    <button
+      type="button"
+      role="radio"
+      aria-checked={tool === id}
+      aria-label={label}
+      onClick={() => setTool(id)}
+      className={cn("flex h-8 items-center gap-1.5 rounded-full px-2.5 text-xs", tool === id ? "bg-gold text-night" : "text-warm/70")}
+    >
+      <Icon className="size-4" /> <span className="hidden sm:inline">{label}</span>
+    </button>
+  );
+
   return (
     <div
       data-draw-full={full || undefined}
-      className={cn(full ? "fixed inset-0 z-[60] flex flex-col gap-3 overflow-y-auto bg-night/95 p-3 pt-[max(0.75rem,env(safe-area-inset-top))] backdrop-blur" : "space-y-4")}
+      className={cn(
+        "flex flex-col gap-2",
+        full ? "fixed inset-0 z-[60] bg-night/95 p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-[max(0.75rem,env(safe-area-inset-top))] backdrop-blur" : "h-full lg:h-auto lg:gap-3",
+      )}
       onKeyDown={onKeyDown}
     >
-      {full && (
+      {full ? (
         <div className="flex items-center justify-between">
           <p className="text-sm font-medium text-warm">
-            วาดบนโคม <span className="text-xs font-normal text-warm/50">· หุบสองนิ้วเพื่อออก</span>
+            วาดบน{FACE_LABEL_TH[face]} <span className="text-xs font-normal text-warm/50">· สองนิ้วเพื่อซูม/เลื่อน</span>
           </p>
           <Button type="button" size="sm" onClick={() => setFull(false)}>
             <Check /> เสร็จ
           </Button>
         </div>
+      ) : (
+        header
       )}
-      <div className="flex flex-wrap items-center gap-2">
-        <div className="flex rounded-full border border-white/10 bg-white/5 p-1" role="radiogroup" aria-label="เครื่องมือ">
-          <button
-            type="button"
-            role="radio"
-            aria-checked={tool === "pen"}
-            onClick={() => setTool("pen")}
-            className={cn("flex h-9 items-center gap-1.5 rounded-full px-3 text-xs", tool === "pen" ? "bg-gold text-night" : "text-warm/70")}
-          >
-            <Brush className="size-4" /> ปากกา
-          </button>
-          <button
-            type="button"
-            role="radio"
-            aria-checked={tool === "eraser"}
-            onClick={() => setTool("eraser")}
-            className={cn("flex h-9 items-center gap-1.5 rounded-full px-3 text-xs", tool === "eraser" ? "bg-gold text-night" : "text-warm/70")}
-          >
-            <Eraser className="size-4" /> ยางลบ
-          </button>
+
+      {/* tools: pen / eraser · size · undo / redo / clear · full screen */}
+      <div className="flex items-center gap-2">
+        <div className="flex shrink-0 rounded-full border border-white/10 bg-white/5 p-0.5" role="radiogroup" aria-label="เครื่องมือ">
+          {toolBtn("pen", Brush, "ปากกา")}
+          {toolBtn("eraser", Eraser, "ยางลบ")}
         </div>
-        <div className="ml-auto flex gap-1">
-          <Button type="button" variant="subtle" size="icon" onClick={undo} disabled={history.undo <= 1} aria-label="ย้อนกลับ (Undo)">
+        <Slider className="min-w-12 flex-1" min={2} max={28} step={1} value={[size]} onValueChange={([v]) => setSize(v)} aria-label="ขนาดแปรง" />
+        <span className="grid size-6 shrink-0 place-items-center" aria-hidden>
+          <span className="rounded-full bg-warm" style={{ width: Math.max(3, size * 0.7), height: Math.max(3, size * 0.7) }} />
+        </span>
+        <div className="flex shrink-0 gap-1">
+          <Button type="button" variant="subtle" size="icon" className="size-8" onClick={undo} disabled={history.undo <= 1} aria-label="ย้อนกลับ (Undo)">
             <Undo2 />
           </Button>
-          <Button type="button" variant="subtle" size="icon" onClick={redo} disabled={!history.redo} aria-label="ทำซ้ำ (Redo)">
+          <Button type="button" variant="subtle" size="icon" className="size-8" onClick={redo} disabled={!history.redo} aria-label="ทำซ้ำ (Redo)">
             <Redo2 />
           </Button>
-          <Button type="button" variant="subtle" size="icon" onClick={clear} aria-label="ล้างภาพวาดทั้งหมด">
+          <Button type="button" variant="subtle" size="icon" className="size-8" onClick={clear} aria-label="ล้างภาพวาดทั้งหมด">
             <Trash2 />
+          </Button>
+          <Button type="button" variant="subtle" size="icon" className="size-8" onClick={() => setFull((f) => !f)} aria-label={full ? "ออกจากโหมดเต็มจอ" : "วาดแบบเต็มจอ"}>
+            {full ? <Minimize2 /> : <Maximize2 />}
           </Button>
         </div>
       </div>
 
-      <div className="flex flex-wrap items-center gap-2">
+      {/* pen colours – one scrollable row */}
+      <div className="no-scrollbar -mx-1 flex items-center gap-2 overflow-x-auto px-1 py-0.5 lg:flex-wrap lg:overflow-visible">
         {PEN_COLORS.map((c) => (
           <button
             key={c}
@@ -296,11 +430,11 @@ export function DrawingPad({ visual, value, onChange, active = true }: Props) {
               setColor(c);
               setTool("pen");
             }}
-            className={cn("size-9 rounded-full border-2 transition", color === c && tool === "pen" ? "scale-110 border-gold" : "border-white/20")}
+            className={cn("size-8 shrink-0 rounded-full border-2 transition", color === c && tool === "pen" ? "scale-110 border-gold" : "border-white/20")}
             style={{ background: c }}
           />
         ))}
-        <label className="relative grid size-9 cursor-pointer place-items-center rounded-full border-2 border-dashed border-white/30 text-xs text-warm/60">
+        <label className="relative grid size-8 shrink-0 cursor-pointer place-items-center rounded-full border-2 border-dashed border-white/30 text-xs text-warm/60">
           +
           <input
             type="color"
@@ -315,84 +449,51 @@ export function DrawingPad({ visual, value, onChange, active = true }: Props) {
         </label>
       </div>
 
-      <div className="flex items-center gap-3">
-        <span className="text-xs text-warm/60">ขนาด</span>
-        <Slider className="max-w-48" min={2} max={28} step={1} value={[size]} onValueChange={([v]) => setSize(v)} aria-label="ขนาดแปรง" />
-        <span className="grid size-8 place-items-center">
-          <span className="rounded-full bg-warm" style={{ width: Math.max(3, size * 0.8), height: Math.max(3, size * 0.8) }} />
-        </span>
-      </div>
-
-      <div
-        className={cn(
-          "relative mx-auto w-full overflow-hidden rounded-xl border border-gold/30 shadow-[0_0_40px_-10px_rgba(245,185,66,0.6)]",
-          full ? "max-w-[min(100%,calc((100dvh-15rem)*0.909))]" : "max-w-sm touch-pan-y",
-        )}
-        style={{ aspectRatio: `${TEX_W} / ${TEX_H}` }}
-        onTouchStart={(e) => {
-          if (!full && e.touches.length >= 2) outerPinch.current = Math.max(1, touchSpread(e.touches));
-        }}
-        onTouchMove={(e) => {
-          if (full || outerPinch.current === null || e.touches.length < 2) return;
-          if (touchSpread(e.touches) / outerPinch.current > 1.3) {
-            outerPinch.current = null;
-            setFull(true);
-          }
-        }}
-        onTouchEnd={(e) => {
-          if (e.touches.length < 2) outerPinch.current = null;
-        }}
-      >
-        <canvas ref={baseRef} width={TEX_W} height={TEX_H} className="absolute inset-0 h-full w-full" aria-hidden />
-        <canvas
-          ref={drawRef}
-          width={TEX_W}
-          height={TEX_H}
-          tabIndex={0}
-          aria-label="พื้นที่วาดภาพบนด้านหน้าโคม"
+      {/* paper – sized to the space that is left (container query), fixed width on desktop */}
+      <div className={cn("min-h-0 flex-1 [container-type:size]", !full && "lg:flex-none lg:[container-type:normal]")}>
+        <div
+          ref={viewportRef}
           className={cn(
-            "absolute inset-0 h-full w-full outline-none",
+            "relative mx-auto touch-none select-none overflow-hidden rounded-xl border border-gold/30 shadow-[0_0_40px_-10px_rgba(245,185,66,0.6)]",
+            "w-[min(100cqw,calc(100cqh*0.909))]",
+            !full && "lg:w-full lg:max-w-sm",
             tool === "eraser" ? "cursor-cell" : "cursor-crosshair",
-            // phones: draw only in full-screen mode so a finger on the canvas can still scroll the page
-            full ? "touch-none" : "pointer-events-none sm:pointer-events-auto sm:touch-none",
           )}
+          style={{ aspectRatio: `${TEX_W} / ${TEX_H}`, WebkitTouchCallout: "none" }}
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
-          onPointerUp={releaseFinger}
-          onPointerCancel={releaseFinger}
-          onPointerLeave={releaseFinger}
-        />
-        {!full && (
-          <>
-            {/* phones: tap to open the full-screen pad */}
-            <button
-              type="button"
-              onClick={() => setFull(true)}
-              className="absolute inset-0 grid place-items-center bg-night/25 sm:hidden"
-              aria-label="แตะเพื่อเริ่มวาดแบบเต็มจอ"
-            >
-              <span className="flex items-center gap-1.5 rounded-full bg-gold px-4 py-2 text-sm font-medium text-night shadow-lg">
-                <Pencil className="size-4" /> แตะหรือถ่างสองนิ้วเพื่อวาด
-              </span>
+          onPointerUp={release}
+          onPointerCancel={release}
+          onContextMenu={(e) => e.preventDefault()}
+        >
+          <div ref={paperRef} className="absolute inset-0 origin-top-left will-change-transform">
+            <canvas ref={baseRef} width={TEX_W} height={TEX_H} className="absolute inset-0 h-full w-full" aria-hidden />
+            <canvas
+              ref={drawRef}
+              width={TEX_W}
+              height={TEX_H}
+              tabIndex={0}
+              aria-label={`พื้นที่วาดภาพบน${FACE_LABEL_TH[face]}ของโคม`}
+              className="absolute inset-0 h-full w-full outline-none"
+            />
+          </div>
+          {/* zoom badge */}
+          <div className="absolute right-1.5 top-1.5 flex items-center gap-0.5 rounded-full bg-night/65 p-0.5 text-warm/85 backdrop-blur" onPointerDown={(e) => e.stopPropagation()}>
+            <button type="button" aria-label="ซูมออก" onClick={() => zoomCentre(1 / 1.5)} disabled={zoomLabel <= 1} className="grid size-7 place-items-center rounded-full disabled:opacity-40">
+              <ZoomOut className="size-4" />
             </button>
-            <button
-              type="button"
-              onClick={() => setFull(true)}
-              aria-label="ขยายเต็มจอ"
-              className="absolute right-2 top-2 hidden size-8 place-items-center rounded-full bg-night/60 text-warm/80 backdrop-blur hover:text-warm sm:grid"
-            >
-              <Maximize2 className="size-4" />
+            <button type="button" aria-label="ขนาดปกติ" onClick={resetZoom} className="min-w-9 text-[11px] tabular-nums">
+              {Math.round(zoomLabel * 100)}%
             </button>
-          </>
-        )}
+            <button type="button" aria-label="ซูมเข้า" onClick={() => zoomCentre(1.5)} disabled={zoomLabel >= MAX_ZOOM} className="grid size-7 place-items-center rounded-full disabled:opacity-40">
+              <ZoomIn className="size-4" />
+            </button>
+          </div>
+        </div>
       </div>
-      {full ? (
-        <Button type="button" className="mx-auto w-full max-w-sm" onClick={() => setFull(false)}>
-          <Check /> เสร็จ กลับไปหน้าออกแบบ
-        </Button>
-      ) : (
-        <p className="hidden text-center text-xs text-warm/45 sm:block">วาดหัวใจ ดอกไม้ ดวงดาว หรือเขียนด้วยลายมือของคุณได้เลย · Ctrl+Z เพื่อย้อนกลับ</p>
-      )}
+      <p className="text-center text-[11px] text-warm/45">
+        นิ้วเดียววาด · สองนิ้วถ่าง/หุบเพื่อซูมและเลื่อนกระดาษ<span className="hidden lg:inline"> · Ctrl+Z เพื่อย้อนกลับ</span>
+      </p>
     </div>
   );
 }

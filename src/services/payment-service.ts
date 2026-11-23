@@ -10,6 +10,7 @@ import type { Quote, Selection } from "@/types/catalog";
 import { createPendingLantern, findLanternByRequest } from "./lantern-service";
 import { log } from "./logger";
 import { rateLimit } from "./rate-limit";
+import { cancelPromptPayOrder, SLIP_METHOD } from "./slip-payment-service";
 
 /** Stripe Checkout sessions must live at least 30 minutes */
 const CHECKOUT_TTL_SECONDS = 30 * 60;
@@ -231,11 +232,12 @@ export async function getCheckoutStatus(userId: string, sessionId: string): Prom
   return readCheckoutStatus(userId, sessionId);
 }
 
-/** User cancelled at Stripe – expire the session so it can't be paid later, then close the record */
+/** User cancelled (Stripe: expire the session; PromptPay QR: close the order) – expire the session so it can't be paid later, then close the record */
 export async function cancelCheckout(userId: string, paymentId: string) {
   const db = getAdminSupabase();
-  const { data: pay } = await db.from("payments").select("id, user_id, stripe_session_id, payment_status").eq("id", paymentId).maybeSingle();
+  const { data: pay } = await db.from("payments").select("id, user_id, stripe_session_id, payment_status, payment_method").eq("id", paymentId).maybeSingle();
   if (!pay || pay.user_id !== userId) throw new ApiError(404, "not_found", "ไม่พบรายการชำระเงิน");
+  if (pay.payment_method === SLIP_METHOD) return cancelPromptPayOrder(userId, paymentId);
   if (pay.payment_status !== "pending" || !pay.stripe_session_id) return { status: pay.payment_status as PaymentStatus };
 
   const stripe = getStripe();

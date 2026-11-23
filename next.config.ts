@@ -33,12 +33,10 @@ const supabaseWs = ["wss://*.supabase.co", ...(supabaseHost && !supabaseHost.end
  */
 const csp = [
   "default-src 'self'",
-  // YouTube IFrame Player API (theme song mini player)
-  `script-src 'self' 'unsafe-inline'${isDev ? " 'unsafe-eval'" : ""} https://www.youtube.com https://s.ytimg.com`,
-  "frame-src https://www.youtube-nocookie.com https://www.youtube.com",
+  `script-src 'self' 'unsafe-inline'${isDev ? " 'unsafe-eval'" : ""}`,
+  "frame-src 'self'",
   "style-src 'self' 'unsafe-inline'",
-  // i.ytimg.com: thumbnail of the song attached to a shared link
-  `img-src 'self' data: blob: ${supabaseHttp} ${r2Http} https://i.ytimg.com`,
+  `img-src 'self' data: blob: ${supabaseHttp} ${r2Http}`,
   "font-src 'self' data:",
   `media-src 'self' blob: ${supabaseHttp} ${r2Http}`,
   `connect-src 'self' ${supabaseHttp} ${supabaseWs} ${r2Http}`,

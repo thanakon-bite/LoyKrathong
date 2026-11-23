@@ -185,7 +185,7 @@ export function FestivalView({ initialFocusId }: { initialFocusId?: string } = {
       </div>
       {!navigated ? (
         <p className="pointer-events-none absolute bottom-[calc(5rem+var(--nf-badge))] left-1/2 flex -translate-x-1/2 items-center gap-1.5 whitespace-nowrap rounded-full bg-night/40 px-3 py-1 text-xs text-warm/60 backdrop-blur">
-          <Hand className="size-3.5" /> ลากเพื่อเลื่อนดู · แตะโคมเพื่ออ่าน
+          <Hand className="size-3.5" /> ลากซ้าย-ขวาเพื่อหมุน 360° · แตะโคมเพื่ออ่าน
         </p>
       ) : (
         <button

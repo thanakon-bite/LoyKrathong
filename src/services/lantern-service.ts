@@ -3,9 +3,10 @@ import { ApiError } from "@/lib/api";
 import { getAdminSupabase } from "@/lib/supabase/admin";
 import { DEFAULT_TEXT_CONFIG } from "@/lib/lantern/designs";
 import { imageConfigSchema, textConfigSchema, type LanternInput } from "@/lib/security/validation";
-import { isEffectId, isLanternShapeId, type LanternShapeId, type EffectId, type LanternDesignId, type MyLanternSummary, type PublicLantern } from "@/types/lantern";
+import { isEffectId, isLanternShapeId, type LanternShapeId, type EffectId, type LanternDesignId, type LanternFaces, type MyLanternSummary, type PublicLantern } from "@/types/lantern";
 import type { Selection } from "@/types/catalog";
 import { assertOwnedAsset, signMany } from "./storage-service";
+import { drawingDataFromInput, inputAssetPaths, inputFaces, storedAssetPaths, storedFaces, type DrawingDataJson } from "@/lib/lantern/face-data";
 
 export interface LanternRow {
   id: string;
@@ -23,7 +24,8 @@ export interface LanternRow {
   offering_amount: number | string | null;
   text_config: unknown;
   image_config: unknown;
-  drawing_data: { path?: string } | null;
+  /** front drawing (path) + art of the other walls (faces) – see lib/lantern/face-data.ts */
+  drawing_data: DrawingDataJson | null;
   image_url: string | null;
   status: string;
   created_at: string;
@@ -53,14 +55,20 @@ async function toPublic(rows: LanternRow[], opts: { ownerView?: boolean } = {}):
   for (const r of rows) {
     // the owner keeps seeing their lantern after it left the public festival
     const remaining = opts.ownerView ? Number.POSITIVE_INFINITY : (Date.parse(r.expires_at ?? "") - now) / 1000;
-    if (r.image_url) toSign.push({ path: r.image_url, expiresInSeconds: remaining });
-    if (r.drawing_data?.path) toSign.push({ path: r.drawing_data.path, expiresInSeconds: remaining });
+    for (const path of storedAssetPaths(r)) toSign.push({ path, expiresInSeconds: remaining });
   }
   const urls = toSign.length ? await signMany(toSign) : new Map<string, string>();
 
   return rows.map((r) => {
     const tc = textConfigSchema.safeParse(r.text_config);
     const ic = imageConfigSchema.safeParse(r.image_config);
+    const signed = (path: string | null | undefined) => (path ? (urls.get(path) ?? null) : null);
+    const faces: LanternFaces = {};
+    for (const f of storedFaces(r.drawing_data)) {
+      const imageSrc = signed(f.image);
+      const drawingSrc = signed(f.drawing);
+      if (imageSrc || drawingSrc) faces[f.face] = { imageSrc, imageConfig: imageSrc ? f.imageConfig : null, drawingSrc };
+    }
     return {
       id: r.id,
       ownerId: r.user_id,
@@ -75,8 +83,9 @@ async function toPublic(rows: LanternRow[], opts: { ownerView?: boolean } = {}):
       offering: Number(r.offering_amount ?? 0),
       textConfig: tc.success ? tc.data : DEFAULT_TEXT_CONFIG,
       imageConfig: ic.success ? ic.data : null,
-      imageSrc: r.image_url ? (urls.get(r.image_url) ?? null) : null,
-      drawingSrc: r.drawing_data?.path ? (urls.get(r.drawing_data.path) ?? null) : null,
+      imageSrc: signed(r.image_url),
+      drawingSrc: signed(r.drawing_data?.path),
+      faces,
       releasedAt: r.released_at!,
       expiresAt: r.expires_at!,
     };
@@ -131,13 +140,14 @@ export async function getActiveLantern(id: string) {
 
 /** A lantern must carry at least something */
 export function assertHasContent(input: LanternInput) {
-  if (!input.wishMessage && !input.blessingMessage && !input.extraMessage && !input.drawingPath && !input.imagePath) {
+  if (!input.wishMessage && !input.blessingMessage && !input.extraMessage && !input.drawingPath && !input.imagePath && !inputFaces(input).length) {
     throw new ApiError(400, "empty_lantern", "กรุณาเขียนคำอธิษฐานหรือวาดภาพบนโคมอย่างน้อย 1 อย่าง");
   }
 }
 
 export async function assertAssets(userId: string, input: LanternInput) {
-  await Promise.all([assertOwnedAsset(userId, input.imagePath), assertOwnedAsset(userId, input.drawingPath)]);
+  // front + every kept wall – each path must be an uploaded file of this user
+  await Promise.all(inputAssetPaths(input).map((path) => assertOwnedAsset(userId, path)));
 }
 
 function rowFromInput(userId: string, input: LanternInput, sel: Selection, requestId: string) {
@@ -157,7 +167,7 @@ function rowFromInput(userId: string, input: LanternInput, sel: Selection, reque
     text_config: input.textConfig,
     image_config: input.imagePath ? input.imageConfig : null,
     image_url: input.imagePath,
-    drawing_data: input.drawingPath ? { path: input.drawingPath, width: 512, height: 563 } : null,
+    drawing_data: drawingDataFromInput(input),
     client_request_id: requestId,
   };
 }

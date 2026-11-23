@@ -119,7 +119,7 @@ function OfferingEditor({ initial, onSaved }: { initial: OfferingSettings; onSav
           </Button>
         </div>
       </div>
-      <p className="text-xs text-warm/45">ยอดที่ใส่จะบวกเข้าบิล Stripe เป็นรายการแยก และแสดงเป็นป้ายเหรียญเหนือโคม · ยอดชำระรวมขั้นต่ำ 10 บาท (ข้อกำหนด Stripe)</p>
+      <p className="text-xs text-warm/45">ยอดที่ใส่จะบวกเข้ายอดโอนพร้อมเพย์เป็นรายการแยก และแสดงเป็นป้ายเหรียญเหนือโคม · ยอดชำระรวมขั้นต่ำ 1 บาท</p>
     </Card>
   );
 }

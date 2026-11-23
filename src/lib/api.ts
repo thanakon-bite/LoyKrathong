@@ -40,9 +40,9 @@ export async function handleError(err: unknown, source: string) {
 }
 
 export function getClientIp(req: Request) {
-  // set by Netlify's edge from the TCP connection – not spoofable by the client
-  const nf = req.headers.get("x-nf-client-connection-ip");
-  if (nf) return nf.trim();
+  // set by the host's edge from the TCP connection – not spoofable by the client
+  const edge = req.headers.get("cf-connecting-ip") ?? req.headers.get("x-nf-client-connection-ip");
+  if (edge) return edge.trim();
   const fwd = req.headers.get("x-forwarded-for");
   if (fwd) return fwd.split(",")[0].trim();
   return req.headers.get("x-real-ip") ?? "unknown";

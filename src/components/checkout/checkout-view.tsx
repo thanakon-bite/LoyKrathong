@@ -3,9 +3,9 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { AlertCircle, ArrowLeft, Coins, CreditCard, Loader2, QrCode, Send, Sparkles, X } from "lucide-react";
+import { AlertCircle, ArrowLeft, Coins, Loader2, QrCode, Send, Sparkles, X } from "lucide-react";
 import { toast } from "sonner";
-import { draftHasContent, draftToVisual, useLanternDraft, type LanternDraft } from "@/hooks/use-lantern-draft";
+import { draftHasContent, draftToVisual, useLanternDraft, type AssetUploads, type LanternDraft } from "@/hooks/use-lantern-draft";
 import { useAuth } from "@/components/providers/auth-provider";
 import { apiFetch, ClientApiError } from "@/lib/api-client";
 import { dataUrlToBlob } from "@/lib/image-client";
@@ -17,14 +17,11 @@ import { PricingError, quote, totalProblem } from "@/lib/pricing";
 import { EFFECT_META } from "@/lib/lantern/effects-meta";
 import { Input } from "@/components/ui/input";
 import type { Quote } from "@/types/catalog";
-import type { PublicLantern } from "@/types/lantern";
+import { EXTRA_FACE_IDS, facesForShape, type ExtraFaceId, type PublicLantern } from "@/types/lantern";
 import { LanternPreview } from "@/components/lantern/lantern-preview";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-
-/** NEXT_PUBLIC_PAYMENT_QR_ONLY=true → PromptPay QR is the only way to pay */
-const QR_ONLY = process.env.NEXT_PUBLIC_PAYMENT_QR_ONLY === "true";
 
 type Step = "idle" | "session" | "uploading" | "releasing" | "redirecting";
 
@@ -33,34 +30,60 @@ const STEP_LABEL: Record<Step, string> = {
   session: "กำลังเตรียมเซสชัน…",
   uploading: "กำลังอัปโหลดภาพบนโคม…",
   releasing: "กำลังปล่อยโคม…",
-  redirecting: QR_ONLY ? "กำลังสร้าง QR สำหรับชำระเงิน…" : "กำลังไปยังหน้าชำระเงิน…",
+  redirecting: "กำลังสร้าง QR พร้อมเพย์…",
 };
 
 async function uploadAsset(kind: "image" | "drawing", dataUrl: string) {
   return uploadLanternAsset(kind, await dataUrlToBlob(dataUrl));
 }
 
-/** Upload image/drawing once; reuse the stored path when retrying with the same content */
+/**
+ * Upload every wall's image/drawing once; reuse the stored path when retrying with the same content.
+ * Returns the asset part of the lantern payload: front paths + `faces` (right / back / left).
+ */
 async function ensureUploads(draft: LanternDraft, update: (p: Partial<LanternDraft>) => void) {
-  const uploads = { ...draft.uploads };
-  if (draft.imageDataUrl) {
-    const key = String(hashString(draft.imageDataUrl));
-    if (uploads.imageKey !== key || !uploads.imagePath) {
-      uploads.imagePath = (await uploadAsset("image", draft.imageDataUrl)).path;
-      uploads.imageKey = key;
+  // one cache entry per asset pair (front at the top level, other walls under uploads.faces)
+  const put = async (cache: AssetUploads, imageDataUrl: string | null, drawingDataUrl: string | null) => {
+    const next = { ...cache };
+    if (imageDataUrl) {
+      const key = String(hashString(imageDataUrl));
+      if (next.imageKey !== key || !next.imagePath) {
+        next.imagePath = (await uploadAsset("image", imageDataUrl)).path;
+        next.imageKey = key;
+      }
     }
-  }
-  if (draft.drawingDataUrl) {
-    const key = String(hashString(draft.drawingDataUrl));
-    if (uploads.drawingKey !== key || !uploads.drawingPath) {
-      uploads.drawingPath = (await uploadAsset("drawing", draft.drawingDataUrl)).path;
-      uploads.drawingKey = key;
+    if (drawingDataUrl) {
+      const key = String(hashString(drawingDataUrl));
+      if (next.drawingKey !== key || !next.drawingPath) {
+        next.drawingPath = (await uploadAsset("drawing", drawingDataUrl)).path;
+        next.drawingKey = key;
+      }
     }
+    return next;
+  };
+  const { faces: faceCache = {}, ...frontCache } = draft.uploads ?? {};
+  const front = await put(frontCache, draft.imageDataUrl, draft.drawingDataUrl);
+  const uploads: LanternDraft["uploads"] = { ...front, faces: { ...faceCache } };
+  const faces: Partial<Record<ExtraFaceId, { imagePath: string | null; imageConfig: LanternDraft["imageConfig"] | null; drawingPath: string | null }>> = {};
+  const walls = facesForShape(draft.shape);
+  for (const face of EXTRA_FACE_IDS) {
+    const art = draft.faces?.[face];
+    if (!art || !walls.includes(face) || !(art.imageDataUrl || art.drawingDataUrl)) continue;
+    const cached = await put(faceCache[face] ?? {}, art.imageDataUrl, art.drawingDataUrl);
+    uploads.faces![face] = cached;
+    // save progress after each wall so a failed upload never re-sends the walls already stored
+    update({ uploads: { ...uploads, faces: { ...uploads.faces } } });
+    faces[face] = {
+      imagePath: art.imageDataUrl ? cached.imagePath! : null,
+      imageConfig: art.imageDataUrl ? art.imageConfig : null,
+      drawingPath: art.drawingDataUrl ? cached.drawingPath! : null,
+    };
   }
   update({ uploads });
   return {
-    imagePath: draft.imageDataUrl ? uploads.imagePath! : null,
-    drawingPath: draft.drawingDataUrl ? uploads.drawingPath! : null,
+    imagePath: draft.imageDataUrl ? front.imagePath! : null,
+    drawingPath: draft.drawingDataUrl ? front.drawingPath! : null,
+    faces,
   };
 }
 
@@ -115,7 +138,7 @@ export function CheckoutView() {
       setStep("session");
       await ensureSession();
       setStep("uploading");
-      const { imagePath, drawingPath } = await ensureUploads(draft, update);
+      const { imagePath, drawingPath, faces } = await ensureUploads(draft, update);
       const payload = {
         requestId: draft.requestId,
         effects: draft.effects ?? [],
@@ -132,6 +155,7 @@ export function CheckoutView() {
           imageConfig: imagePath ? draft.imageConfig : null,
           imagePath,
           drawingPath,
+          faces,
         },
       };
       if (q.total <= 0) {
@@ -142,8 +166,9 @@ export function CheckoutView() {
         router.push(lantern ? `/festival?released=${lantern.id}` : "/festival");
       } else {
         setStep("redirecting");
-        const { url } = await apiFetch<{ url: string }>("/api/checkout", { method: "POST", json: payload });
-        window.location.assign(url);
+        // PromptPay QR + slip: the amount comes from the server-side quote, never from this page
+        const { paymentId } = await apiFetch<{ paymentId: string }>("/api/checkout", { method: "POST", json: payload });
+        router.push(`/payment/promptpay?id=${paymentId}`);
       }
     } catch (e) {
       const err = e as ClientApiError;
@@ -308,20 +333,9 @@ export function CheckoutView() {
           )}
         </section>
 
-        {total > 0 && QR_ONLY && (
+        {total > 0 && (
           <p className="flex items-center gap-2 rounded-2xl border border-white/10 bg-white/[0.03] p-3 text-xs text-warm/65">
-            <QrCode className="size-5 shrink-0 text-gold" /> สแกน QR พร้อมเพย์ด้วยแอปธนาคารใดก็ได้ ระบบยืนยันการชำระและปล่อยโคมให้อัตโนมัติ
-          </p>
-        )}
-        {total > 0 && !QR_ONLY && (
-          <p className="hidden flex-wrap items-center gap-3 text-xs text-warm/55 sm:flex">
-            <span className="flex items-center gap-1">
-              <CreditCard className="size-4" /> บัตรเครดิต / เดบิต
-            </span>
-            <span className="flex items-center gap-1">
-              <QrCode className="size-4" /> PromptPay QR (เมื่อเปิดใช้งาน)
-            </span>
-            <span>ชำระอย่างปลอดภัยผ่าน Stripe · สกุลเงิน THB</span>
+            <QrCode className="size-5 shrink-0 text-gold" /> สแกน QR พร้อมเพย์ด้วยแอปธนาคารใดก็ได้ แล้วแนบสลิป ระบบตรวจกับธนาคารและปล่อยโคมให้ทันที
           </p>
         )}
 
@@ -338,8 +352,8 @@ export function CheckoutView() {
           disabled={!q || !!priced.problem || busy || !configured}
           onClick={submit}
         >
-          {busy ? <Loader2 className="animate-spin" /> : total > 0 ? QR_ONLY ? <QrCode /> : <CreditCard /> : <Send />}
-          {busy ? STEP_LABEL[step] : total > 0 ? `${QR_ONLY ? "สแกน QR จ่าย" : "ชำระเงิน"} ${formatTHB(total)}` : "ปล่อยโคมเลย (ฟรี)"}
+          {busy ? <Loader2 className="animate-spin" /> : total > 0 ? <QrCode /> : <Send />}
+          {busy ? STEP_LABEL[step] : total > 0 ? `สแกน QR จ่าย ${formatTHB(total)}` : "ปล่อยโคมเลย (ฟรี)"}
         </Button>
         {!configured && <p className="text-center text-xs text-amber">ระบบยังไม่ได้เชื่อมต่อฐานข้อมูล (ตั้งค่า Supabase ตาม README)</p>}
         <p className="text-center text-[11px] text-warm/40 sm:text-xs">

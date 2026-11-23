@@ -2,6 +2,8 @@ import "server-only";
 import { getAdminSupabase } from "@/lib/supabase/admin";
 import { removeAssets } from "./storage-service";
 import { log } from "./logger";
+import { expireAbandonedSlipOrders, purgeOldSlipImages } from "./slip-payment-service";
+import { storedAssetPaths } from "@/lib/lantern/face-data";
 
 /**
  * Retention policy (runs from /api/cron/cleanup):
@@ -9,7 +11,8 @@ import { log } from "./logger";
  *     but kept for their owner ("โคมของฉัน") – content and images are NOT deleted.
  *  2. Removed (moderated) and cancelled/unpaid lanterns: delete their images from Storage and wipe
  *     the content. A minimal row is kept for statistics and payment history.
- *  3. Abandoned checkouts older than 2 hours are marked expired.
+ *  3. Abandoned checkouts / QR orders older than 2 hours are marked expired.
+ *  4. Payment-slip images older than 90 days are deleted.
  */
 export async function runCleanup() {
   const db = getAdminSupabase();
@@ -31,7 +34,8 @@ export async function runCleanup() {
   let purged = 0;
   for (let i = 0; i < purgeable.length; i += 100) {
     const batch = purgeable.slice(i, i + 100);
-    const paths = batch.flatMap((r) => [r.image_url, (r.drawing_data as { path?: string } | null)?.path].filter(Boolean) as string[]);
+    // front photo / drawing + the art of every other wall (drawing_data.faces)
+    const paths = batch.flatMap((r) => storedAssetPaths(r));
     try {
       await removeAssets(paths);
     } catch (e) {
@@ -68,7 +72,22 @@ export async function runCleanup() {
     await db.rpc("close_unpaid_payment", { p_session_id: p.stripe_session_id, p_status: "expired", p_reason: "abandoned checkout" });
   }
 
+  // PromptPay QR orders (no Stripe session) – needs migration 20261123000002_slip_payments
+  let abandonedQr = 0;
+  try {
+    abandonedQr = await expireAbandonedSlipOrders();
+  } catch (e) {
+    await log("warn", "cleanup", "could not expire abandoned QR orders", { error: String(e) });
+  }
+  // slip images (names / account numbers) are deleted after 90 days
+  let slipImagesPurged = 0;
+  try {
+    slipImagesPurged = await purgeOldSlipImages();
+  } catch (e) {
+    await log("warn", "cleanup", "could not delete old slip images", { error: String(e) });
+  }
+
   await db.from("rate_limits").delete().lt("window_start", new Date(Date.now() - 24 * 3600 * 1000).toISOString());
 
-  return { expired: expiredCount ?? 0, purged, abandonedCheckouts: stale?.length ?? 0 };
+  return { expired: expiredCount ?? 0, purged, abandonedCheckouts: (stale?.length ?? 0) + abandonedQr, slipImagesPurged };
 }
