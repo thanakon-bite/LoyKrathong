@@ -41,7 +41,7 @@ export function PaymentSuccess() {
             resetDone.current = true;
             reset();
           }
-          setTimeout(() => router.push(`/festival?released=${status.lanternId}`), 3500);
+          setTimeout(() => router.push(`/festival?released=${status.lanternId}`), 1500);
           return;
         }
         if (["failed", "cancelled", "expired"].includes(status.paymentStatus)) {

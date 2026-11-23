@@ -33,7 +33,7 @@ export function Studio() {
   const subtotal = useMemo(() => {
     if (!catalog || !draft) return 0;
     try {
-      return quote(catalog, { design: draft.design, effects: draft.effects ?? [], offering: 0 }).total;
+      return quote(catalog, { design: draft.design, shape: draft.shape, effects: draft.effects ?? [], offering: 0 }).total;
     } catch {
       return 0;
     }
@@ -89,7 +89,8 @@ export function Studio() {
       </div>
 
       {/* Editor */}
-      <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-4 backdrop-blur-xl sm:p-6">
+      {/* backdrop-filter would trap the full-screen drawing pad (position: fixed) inside this box – drop it while drawing full screen */}
+      <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-4 backdrop-blur-xl has-[[data-draw-full]]:backdrop-blur-none sm:p-6">
         <Tabs value={tab} onValueChange={setTab}>
           <TabsList>
             <TabsTrigger value="design">
@@ -111,10 +112,13 @@ export function Studio() {
           <TabsContent value="design">
             <DesignPicker
               design={draft.design}
+              shape={draft.shape ?? "box"}
               color={draft.color}
               onDesign={(d) => update({ design: d, color: LANTERN_DESIGNS[d].defaultLight, textConfig: { ...draft.textConfig, color: LANTERN_DESIGNS[d].defaultInk } })}
+              onShape={(shape) => update({ shape })}
               onColor={(c) => update({ color: c })}
               prices={catalog?.designs ?? null}
+              shapePrices={catalog?.shapes ?? null}
             />
           </TabsContent>
           <TabsContent value="text">

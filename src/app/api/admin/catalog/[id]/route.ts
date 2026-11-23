@@ -19,6 +19,9 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
     if (current.kind === "design" && current.code === "classic-golden" && (p.price > 0 || !p.isActive)) {
       throw new ApiError(400, "keep_free", "โคมทองคลาสสิกต้องเปิดใช้และฟรีเสมอ เพื่อให้ทุกคนปล่อยโคมได้");
     }
+    if (current.kind === "shape" && current.code === "box" && (p.price > 0 || !p.isActive)) {
+      throw new ApiError(400, "keep_free", "ทรงกล่องสี่เหลี่ยมต้องเปิดใช้และฟรีเสมอ เพื่อให้ทุกคนปล่อยโคมได้");
+    }
     const { error } = await db
       .from("catalog_items")
       .update({ name: p.name, description: p.description, price: p.price, is_active: p.isActive, sort_order: p.sortOrder })

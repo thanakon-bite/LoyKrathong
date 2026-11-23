@@ -7,7 +7,7 @@ import { getCatalog } from "./catalog-service";
 
 /** Re-prices a release request from the database (never trusts amounts from the browser) */
 export async function quoteRequest(body: ReleaseRequest): Promise<{ selection: Selection; quote: Quote }> {
-  const selection: Selection = { design: body.lantern.design, effects: [...new Set(body.effects)], offering: body.offering };
+  const selection: Selection = { design: body.lantern.design, shape: body.lantern.shape, effects: [...new Set(body.effects)], offering: body.offering };
   const catalog = await getCatalog();
   try {
     const q = quote(catalog, selection);

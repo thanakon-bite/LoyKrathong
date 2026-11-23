@@ -1,5 +1,6 @@
 import { z } from "zod";
-import { DECORATIONS, EFFECT_IDS, LANTERN_DESIGN_IDS, LANTERN_FONT_IDS, TEXT_POSITIONS } from "@/types/lantern";
+import { DECORATIONS, EFFECT_IDS, LANTERN_DESIGN_IDS,
+  LANTERN_SHAPE_IDS, LANTERN_FONT_IDS, TEXT_POSITIONS } from "@/types/lantern";
 import { LIMITS } from "@/lib/lantern/designs";
 import { sanitizeText } from "./sanitize";
 
@@ -31,6 +32,7 @@ export const imageConfigSchema = z.object({
 
 export const lanternInputSchema = z.object({
   design: z.enum(LANTERN_DESIGN_IDS),
+  shape: z.enum(LANTERN_SHAPE_IDS).default("box"),
   color: hexColor,
   displayName: cleanText(LIMITS.displayName, 1),
   wishMessage: cleanText(LIMITS.wishMessage),

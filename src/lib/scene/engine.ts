@@ -1,4 +1,4 @@
-import type { EffectId, LanternDesignId, LanternVisual } from "@/types/lantern";
+import type { EffectId, LanternDesignId, LanternShapeId, LanternVisual } from "@/types/lantern";
 import { hashString } from "@/lib/utils";
 import { FADE_OUT_MS, LANTERN_LIFETIME_MS, lanternPose, type LanternPose } from "@/lib/lantern/motion";
 import { drawHalo, drawLantern, drawReflection, type ScreenRect } from "@/lib/lantern/render";
@@ -8,6 +8,7 @@ import { LANTERN_DESIGNS } from "@/lib/lantern/designs";
 import { WaterBackground } from "./water";
 import { Particles } from "./particles";
 import { buildDoodleTextures } from "./doodles";
+import { bubblePhase, buildWishBubble, type BubbleSprite } from "./wish-bubbles";
 import { computeView, LANTERN_WORLD_SIZE, pitchFor, projectPoint, type Camera, type View } from "./view";
 
 export interface EngineLantern {
@@ -16,6 +17,7 @@ export interface EngineLantern {
   releasedAtMs: number;
   expiresAtMs: number;
   design: LanternDesignId;
+  shape?: LanternShapeId;
   light: string;
   effects: EffectId[];
   offering: number;
@@ -75,7 +77,9 @@ function detectQuality(): Quality {
   const cores = nav.hardwareConcurrency ?? 8;
   const mem = nav.deviceMemory ?? 8;
   const reduced = typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
-  return cores <= 4 || mem <= 4 || reduced ? "low" : "high";
+  // iOS Safari reports 4 cores or fewer on every iPhone – only truly small devices start in "low";
+  // monitorPerformance() still drops to "low" automatically when frames get slow
+  return cores <= 2 || mem <= 2 || reduced ? "low" : "high";
 }
 
 export class FestivalEngine {
@@ -84,6 +88,8 @@ export class FestivalEngine {
   private water: WaterBackground;
   private particles: Particles;
   private pool = new TexturePool();
+  /** wish speech-bubble sprites, by lantern id */
+  private bubbles = new Map<string, { text: string; sprite: BubbleSprite | null }>();
   private view: View = computeView(1, 1);
   private cam: Camera = { x: 0, z: 0 };
   private camTarget: Camera = { x: 0, z: 0 };
@@ -270,6 +276,7 @@ export class FestivalEngine {
     const list: EngineLantern[] = [];
     for (let i = 0; i < count; i++) {
       const design = designs[i % designs.length];
+      const shape: LanternShapeId = i % 7 === 3 ? "moon" : i % 9 === 5 ? "heart" : "box";
       const age = ((i + 0.5) / count) * 38 * 60 * 1000;
       list.push({
         id: `deco-${i}`,
@@ -277,6 +284,7 @@ export class FestivalEngine {
         releasedAtMs: now - age,
         expiresAtMs: Number.POSITIVE_INFINITY,
         design,
+        shape,
         light: LANTERN_DESIGNS[design].defaultLight,
         effects: [],
         offering: 0,
@@ -297,7 +305,8 @@ export class FestivalEngine {
     const w = Math.max(1, rect.width);
     const h = Math.max(1, rect.height);
     // full retina resolution is rarely worth it for a soft, glowing scene – big win on phones
-    const maxDpr = this.quality === "high" ? 1.5 : 1;
+    // phones have 3x screens: 1x looked blurry; 2x keeps lanterns and their writing crisp
+    const maxDpr = this.quality === "high" ? 2 : 1.5;
     this.dpr = Math.min(typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1, maxDpr);
     this.canvas.width = Math.round(w * this.dpr);
     this.canvas.height = Math.round(h * this.dpr);
@@ -367,7 +376,7 @@ export class FestivalEngine {
   private requestTextures(e: Entity) {
     if (e.texState !== "idle") return;
     if (e.doodleSeed != null) {
-      e.textures = buildDoodleTextures(e.doodleSeed, this.quality === "high" ? 0.4 : 0.3);
+      e.textures = buildDoodleTextures(e.doodleSeed, this.quality === "high" ? 0.5 : 0.4);
       e.texState = "ready";
       return;
     }
@@ -410,7 +419,7 @@ export class FestivalEngine {
     if (this.destroyed) return;
     e.textures = buildFaceTextures(v, { image, drawing }, {
       target: e.textures ?? this.pool.take(),
-      resolution: this.quality === "high" ? 0.5 : 0.35,
+      resolution: this.quality === "high" ? 0.6 : 0.45,
     });
     e.texState = "ready";
   }
@@ -567,6 +576,7 @@ export class FestivalEngine {
         glow: pose.glow,
         alpha: pose.alpha * e.vis,
         design: e.design,
+        shape: e.shape,
         light: e.light,
         effects: e.effects,
         offering: e.offering,
@@ -581,7 +591,53 @@ export class FestivalEngine {
     this.particles.draw(ctx, v.w, v.h, this.time);
 
     if (this.vignette) ctx.drawImage(this.vignette, 0, 0, v.w, v.h);
+    this.drawWishBubbles(ctx, projected);
     void now;
+  }
+
+  /**
+   * "What did they wish for?" – speech bubbles float up above other people's lanterns, a few at a time
+   * (the nearest ones), taking turns so the river never gets cluttered.
+   */
+  private drawWishBubbles(ctx: CanvasRenderingContext2D, projected: Array<{ e: Entity; sx: number; size: number }>) {
+    const fontsReady = typeof document === "undefined" || !document.fonts || document.fonts.check('13px "Sriracha"', "ก");
+    const max = this.quality === "high" ? 6 : 4;
+    const candidates = projected
+      .filter(({ e, size }) => {
+        const wish = e.visual?.wishMessage;
+        return wish && e.doodleSeed == null && e.ownerId !== this.userId && e.rect && size >= 30 && e.vis > 0.6 && (e.pose?.alpha ?? 0) > 0.5 && e.id !== this.focusId;
+      })
+      .sort((a, b) => b.size - a.size)
+      .slice(0, max * 2);
+    const placed: Array<{ x: number; y: number; w: number; h: number }> = [];
+    let shown = 0;
+    for (const { e, sx, size } of candidates) {
+      if (shown >= max) break;
+      const { alpha, rise } = bubblePhase(this.time, e.seed);
+      if (alpha <= 0.01) continue;
+      const text = e.visual!.wishMessage;
+      let entry = this.bubbles.get(e.id);
+      if (!entry || entry.text !== text || (!entry.sprite && fontsReady)) {
+        if (!fontsReady && entry) continue;
+        if (this.bubbles.size > 160) this.bubbles.clear();
+        entry = { text, sprite: fontsReady ? buildWishBubble(text) : null };
+        this.bubbles.set(e.id, entry);
+      }
+      const sp = entry.sprite;
+      if (!sp) continue;
+      const scale = Math.max(0.8, Math.min(1.1, size / 90));
+      const w = sp.w * scale;
+      const h = sp.h * scale;
+      const x = Math.max(4, Math.min(this.view.w - w - 4, sx - w / 2));
+      const y = e.rect!.y - h - 6 - rise * scale;
+      if (y < 56) continue; // stay clear of the HUD
+      if (placed.some((r) => x < r.x + r.w && x + w > r.x && y < r.y + r.h && y + h > r.y)) continue;
+      placed.push({ x, y, w, h });
+      ctx.globalAlpha = alpha * (e.pose?.alpha ?? 1);
+      ctx.drawImage(sp.canvas, x, y, w, h);
+      shown++;
+    }
+    ctx.globalAlpha = 1;
   }
 
   private monitorPerformance(dtMs: number) {
@@ -755,6 +811,7 @@ export function toEngineLantern(l: {
     releasedAtMs: Date.parse(l.releasedAt),
     expiresAtMs: Date.parse(l.expiresAt),
     design: l.design,
+    shape: l.shape ?? "box",
     light: l.color,
     effects: l.effects ?? [],
     offering: l.offering ?? 0,

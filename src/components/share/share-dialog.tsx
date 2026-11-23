@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Check, Copy, Download, Eye, ImageIcon, Loader2, Music2, Share2 } from "lucide-react";
 import { toast } from "sonner";
 import type { PublicLantern } from "@/types/lantern";
@@ -56,9 +56,17 @@ export function ShareDialog({ lantern, onClose, justReleased }: Props) {
   const [mode, setMode] = useState<"postcard" | "music">("postcard");
   const [music, setMusic] = useState<ClipMusic | null>(null);
 
+  // the festival replaces lantern objects on every realtime update / resync – only a different lantern
+  // (by id) may reset the sheet, otherwise a picked song vanishes and the heavy postcard re-renders mid-use
+  const lanternId = lantern?.id ?? null;
+  const latestLantern = useRef(lantern);
+  useEffect(() => {
+    latestLantern.current = lantern;
+  });
+
   const shareUrl = useMemo(
-    () => (lantern && typeof window !== "undefined" ? lanternShareUrl(window.location.origin, lantern.id, mode === "music" ? music : null) : ""),
-    [lantern, mode, music],
+    () => (lanternId && typeof window !== "undefined" ? lanternShareUrl(window.location.origin, lanternId, mode === "music" ? music : null) : ""),
+    [lanternId, mode, music],
   );
   const withMusic = mode === "music" && !!music;
   const shareText = lantern
@@ -66,10 +74,10 @@ export function ShareDialog({ lantern, onClose, justReleased }: Props) {
     : "";
 
   useEffect(() => {
-    if (!lantern) return;
+    const lantern = latestLantern.current;
+    if (!lanternId || !lantern) return;
     let cancelled = false;
     let url: string | null = null;
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- start async render of the postcard
     setRendering(true);
     renderPolaroid(lantern, { host: window.location.host })
       .then((canvas) => canvasToBlob(canvas))
@@ -90,7 +98,7 @@ export function ShareDialog({ lantern, onClose, justReleased }: Props) {
       setMode("postcard");
       setMusic(null);
     };
-  }, [lantern]);
+  }, [lanternId]);
 
   const canShareFile = typeof navigator !== "undefined" && !!file && !!navigator.canShare?.({ files: [file] });
 

@@ -107,6 +107,7 @@ async function drawPhoto(ctx: CanvasRenderingContext2D, visual: LanternVisual, w
     glow: 1,
     alpha: 1,
     design: visual.design,
+    shape: visual.shape,
     light: visual.color,
     effects: visual.effects,
     offering: visual.offering,

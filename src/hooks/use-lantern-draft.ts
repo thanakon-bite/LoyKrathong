@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useSyncExternalStore } from "react";
-import type { EffectId, ImageConfig, LanternDesignId, LanternVisual, TextConfig } from "@/types/lantern";
+import type { EffectId, ImageConfig, LanternDesignId, LanternVisual, TextConfig, LanternShapeId } from "@/types/lantern";
 import { DEFAULT_TEXT_CONFIG, LANTERN_DESIGNS } from "@/lib/lantern/designs";
 
 export interface LanternDraft {
@@ -15,6 +15,8 @@ export interface LanternDraft {
   imageConfig: ImageConfig;
   imageDataUrl: string | null;
   drawingDataUrl: string | null;
+  /** krathong silhouette */
+  shape: LanternShapeId;
   /** paid add-on effects */
   effects: EffectId[];
   /** money put into the lantern (THB) */
@@ -30,6 +32,7 @@ const STORAGE_KEY = "loykrathong:draft:v1";
 export function newDraft(): LanternDraft {
   return {
     design: "classic-golden",
+    shape: "box",
     color: LANTERN_DESIGNS["classic-golden"].defaultLight,
     displayName: "",
     wishMessage: "",
@@ -122,6 +125,7 @@ export function useLanternDraft() {
 export function draftToVisual(d: LanternDraft): LanternVisual {
   return {
     design: d.design,
+    shape: d.shape ?? "box",
     color: d.color,
     effects: d.effects ?? [],
     offering: d.offering ?? 0,

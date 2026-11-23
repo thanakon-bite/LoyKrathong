@@ -199,7 +199,7 @@ export async function handleStripeEvent(event: Stripe.Event): Promise<boolean> {
 }
 
 /** Status for the success page – read from our database (written by the webhook), not from the URL */
-export async function getCheckoutStatus(userId: string, sessionId: string): Promise<CheckoutStatus> {
+async function readCheckoutStatus(userId: string, sessionId: string) {
   const { data, error } = await getAdminSupabase()
     .from("payments")
     .select("payment_status, lantern_id, user_id, lanterns!payments_lantern_id_fkey(status)")
@@ -209,6 +209,23 @@ export async function getCheckoutStatus(userId: string, sessionId: string): Prom
   if (!data || data.user_id !== userId) throw new ApiError(404, "not_found", "ไม่พบรายการชำระเงิน");
   const lantern = data.lanterns as unknown as { status: string } | null;
   return { paymentStatus: data.payment_status as PaymentStatus, lanternId: data.lantern_id, lanternStatus: lantern?.status ?? null };
+}
+
+/**
+ * Polled by the success page. While the record is still pending, ask Stripe directly and fulfil the
+ * session ourselves (idempotent – same path as the webhook), so a late or failed webhook never leaves
+ * a paying visitor stuck on "verifying".
+ */
+export async function getCheckoutStatus(userId: string, sessionId: string): Promise<CheckoutStatus> {
+  const status = await readCheckoutStatus(userId, sessionId);
+  if (status.paymentStatus !== "pending") return status;
+  try {
+    await fulfillSession(sessionId);
+  } catch (e) {
+    await log("warn", "checkout-status", "direct fulfilment failed", { sessionId, error: String(e) });
+    return status;
+  }
+  return readCheckoutStatus(userId, sessionId);
 }
 
 /** User cancelled at Stripe – expire the session so it can't be paid later, then close the record */

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { CalendarDays, Clock, Flag, Heart, Loader2, Share2, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 import type { PublicLantern } from "@/types/lantern";
@@ -14,6 +14,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { formatRemaining } from "@/lib/lantern/motion";
 import { EFFECT_META } from "@/lib/lantern/effects-meta";
+import { canvasToBlob, renderPolaroid } from "@/lib/share/polaroid";
 import { DrawnSticker, KeepsakeViewer, lanternKeepsakes, PolaroidPhoto } from "@/components/share/keepsake-viewer";
 
 const REASONS = [
@@ -57,17 +58,19 @@ export function LanternDetailDialog({ lantern, serverOffset, onClose, onGone, on
   const remaining = useCountdown(data?.expiresAt, serverOffset);
   const isMine = !!user && data?.ownerId === user.id;
 
-  // re-validate with the server (expired lanterns cannot be opened) and refresh signed URLs
+  // re-validate with the server (expired lanterns cannot be opened) and refresh signed URLs.
+  // Keyed by id: the festival replaces lantern objects on every realtime update / resync.
+  const lanternId = lantern?.id ?? null;
   useEffect(() => {
-    if (!lantern || ownerView) return;
+    if (!lanternId || ownerView) return;
     let active = true;
-    apiFetch<{ lantern: PublicLantern }>(`/api/lanterns/${lantern.id}`)
+    apiFetch<{ lantern: PublicLantern }>(`/api/lanterns/${lanternId}`)
       .then((r) => active && setFresh(r.lantern))
       .catch((e) => {
         if (!active) return;
         if (e.status === 404) {
           toast.info("โคมนี้ลอยหายไปกับสายน้ำแล้ว");
-          onGone(lantern.id);
+          onGone(lanternId);
         }
       });
     return () => {
@@ -75,7 +78,34 @@ export function LanternDetailDialog({ lantern, serverOffset, onClose, onGone, on
       setReporting(false);
       setZoom(null);
     };
-  }, [lantern, onGone, ownerView]);
+  }, [lanternId, onGone, ownerView]);
+
+  // the card opens as the same polaroid postcard that is shared (rendered once per lantern)
+  const [postcard, setPostcard] = useState<{ id: string; url: string } | null>(null);
+  const latest = useRef(data);
+  useEffect(() => {
+    latest.current = data;
+  });
+  const postcardKey = data ? `${data.id}|${data.imageSrc ? 1 : 0}|${data.drawingSrc ? 1 : 0}` : null;
+  useEffect(() => {
+    const v = latest.current;
+    if (!postcardKey || !v) return;
+    let cancelled = false;
+    let url: string | null = null;
+    renderPolaroid(v, { host: window.location.host })
+      .then((c) => canvasToBlob(c, "image/jpeg", 0.9))
+      .then((blob) => {
+        if (cancelled) return;
+        url = URL.createObjectURL(blob);
+        setPostcard({ id: v.id, url });
+      })
+      .catch(() => undefined); // the live 3D lantern stays as the fallback
+    return () => {
+      cancelled = true;
+      if (url) URL.revokeObjectURL(url);
+    };
+  }, [postcardKey]);
+  const postcardUrl = postcard && postcard.id === data?.id ? postcard.url : null;
 
   const sendReport = async () => {
     if (!data) return;
@@ -108,10 +138,15 @@ export function LanternDetailDialog({ lantern, serverOffset, onClose, onGone, on
         {data && (
           <div className="relative grid max-h-[94dvh] grid-cols-[minmax(0,1fr)] grid-rows-[auto_minmax(0,1fr)] md:h-[min(640px,86dvh)] md:grid-cols-[minmax(0,1fr)_minmax(0,1.05fr)] md:grid-rows-1">
             {/* ---------- lantern ---------- */}
-            <div className="relative h-[34dvh] min-h-56 overflow-hidden bg-night md:h-full">
-              <LanternPreview visual={data} label={`โคมของ ${data.displayName}`} />
-              <div className="pointer-events-none absolute inset-x-0 bottom-0 h-24 bg-gradient-to-t from-[#0b1122] to-transparent md:hidden" />
-              {data.effects.length > 0 && (
+            <div className="relative h-[46dvh] min-h-64 overflow-hidden bg-[radial-gradient(ellipse_at_50%_30%,#1a1838,#070b18)] md:h-full">
+              {postcardUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element -- local blob URL of the rendered postcard
+                <img src={postcardUrl} alt={`โปสการ์ดโคมของ ${data.displayName}`} className="absolute inset-0 h-full w-full object-contain p-2 md:p-4" />
+              ) : (
+                <LanternPreview visual={data} label={`โคมของ ${data.displayName}`} />
+              )}
+              <div className="pointer-events-none absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t from-[#0b1122] to-transparent md:hidden" />
+              {!postcardUrl && data.effects.length > 0 && (
                 <div className="pointer-events-none absolute inset-x-3 bottom-3 flex flex-wrap justify-center gap-1.5">
                   {data.effects.map((e) => (
                     <span key={e} className="glass rounded-full px-2.5 py-1 text-[11px] text-warm/85">

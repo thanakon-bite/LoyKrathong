@@ -40,3 +40,26 @@ describe("à-la-carte pricing", () => {
     expect(quote(catalog, { design: "classic-golden", effects: [], offering: 10.555 }).total).toBe(10.56);
   });
 });
+
+describe("krathong shapes", () => {
+  it("prices a shape as its own line (box is free)", () => {
+    expect(quote(catalog, { design: "classic-golden", shape: "box", effects: [], offering: 0 }).total).toBe(0);
+    const q = quote(catalog, { design: "classic-golden", shape: "rabbit", effects: [], offering: 0 });
+    expect(q.lines.map((l) => [l.kind, l.code, l.amount])).toEqual([["shape", "rabbit", 19]]);
+  });
+
+  it("treats a missing shape as the box", () => {
+    expect(quote(catalog, { design: "classic-golden", effects: [], offering: 0 }).total).toBe(0);
+  });
+
+  it("before the shapes migration only the box is allowed", () => {
+    const old = { ...catalog, shapes: [] };
+    expect(quote(old, { design: "classic-golden", shape: "box", effects: [], offering: 0 }).total).toBe(0);
+    expect(() => quote(old, { design: "classic-golden", shape: "heart", effects: [], offering: 0 })).toThrow(PricingError);
+  });
+
+  it("rejects a shape the admin switched off", () => {
+    const off = { ...catalog, shapes: catalog.shapes.map((s) => (s.code === "moon" ? { ...s, isActive: false } : s)) };
+    expect(() => quote(off, { design: "classic-golden", shape: "moon", effects: [], offering: 0 })).toThrow(PricingError);
+  });
+});

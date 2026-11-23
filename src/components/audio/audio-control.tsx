@@ -21,13 +21,14 @@ export function AudioControl({ className }: { className?: string }) {
   if (suspended) return null;
 
   return (
-    <div data-audio-control className={cn("fixed right-4 z-40 flex items-center gap-2 sm:right-6", lift, className)}>
+    // bottom-LEFT: Netlify's free plan injects a "Powered by Netlify" badge at bottom-right that cannot be turned off
+    <div data-audio-control className={cn("fixed left-4 z-40 flex flex-row-reverse items-center gap-2 sm:left-6", lift, className)}>
       <AnimatePresence>
         {open && (
           <motion.div
-            initial={{ opacity: 0, x: 10 }}
+            initial={{ opacity: 0, x: -10 }}
             animate={{ opacity: 1, x: 0 }}
-            exit={{ opacity: 0, x: 10 }}
+            exit={{ opacity: 0, x: -10 }}
             className="glass flex w-40 items-center gap-2 rounded-full px-4 py-2"
           >
             <Slider aria-label="ระดับเสียง" min={0} max={1} step={0.05} value={[volume]} onValueChange={([v]) => setVolume(v)} />

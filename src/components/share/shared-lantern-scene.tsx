@@ -208,6 +208,7 @@ export function SharedLanternScene({ lantern, music }: Props) {
         glow: 1,
         alpha: 1,
         design: lantern.design,
+        shape: lantern.shape,
         light: lantern.color,
         effects: lantern.effects,
         offering: lantern.offering,

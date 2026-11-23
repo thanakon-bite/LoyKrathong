@@ -1,16 +1,21 @@
-import type { EffectId, LanternDesignId } from "@/types/lantern";
-import { glowSprite } from "./render-sprites";
+import type { EffectId, LanternDesignId, LanternShapeId } from "@/types/lantern";
+import { fiberCanvas, glowSprite } from "./render-sprites";
 import { drawEffects, drawOfferingBadge } from "./effects";
 
 export { glowSprite };
 import { mixHex, rgba } from "@/lib/utils";
 import { LANTERN_DESIGNS } from "./designs";
 import { FACE_ASPECT, TEX_H, TEX_W, type FaceTextures } from "./texture";
+import { drawKrathongBack, drawKrathongFront, KRATHONG_RADIUS, KRATHONG_TOP, type KrathongParams } from "./krathong-base";
+import { insidePoly, panelToTexture, SHAPES, shapePanel, traceShape, type ShapeDef } from "./shapes";
 
 /**
- * Cube paper lantern renderer (Canvas 2D).
- * The cube is projected orthographically (rotation + camera pitch); every face is
- * a parallelogram, so face textures are mapped exactly with an affine transform.
+ * Paper lantern renderer (Canvas 2D).
+ * The lantern is projected orthographically (rotation + camera pitch). The classic cube has
+ * parallelogram faces, so face textures are mapped exactly with an affine transform; the
+ * silhouette lanterns (heart / moon / rabbit, see shapes.ts) are flat extrusions whose front and
+ * back panels are planes as well, so the same affine mapping applies to them.
+ * Every lantern stands on a traditional banana-leaf krathong (krathong-base.ts).
  */
 
 export interface DrawLanternParams {
@@ -29,6 +34,8 @@ export interface DrawLanternParams {
   glow: number;
   alpha: number;
   design: LanternDesignId;
+  /** krathong silhouette – default "box" (the classic cube) */
+  shape?: LanternShapeId;
   light: string;
   /** paid add-on effects */
   effects?: EffectId[];
@@ -56,32 +63,6 @@ type V2 = [number, number];
 const HALF = 1;
 const HEIGHT = 2 * FACE_ASPECT;
 
-
-let fiberPattern: HTMLCanvasElement | null = null;
-/** Subtle paper fibre texture */
-function fiberCanvas() {
-  if (fiberPattern) return fiberPattern;
-  const c = document.createElement("canvas");
-  c.width = 128;
-  c.height = 140;
-  const g = c.getContext("2d")!;
-  let s = 1337;
-  const rnd = () => ((s = (s * 16807) % 2147483647) / 2147483647);
-  for (let i = 0; i < 260; i++) {
-    g.strokeStyle = `rgba(120, 80, 30, ${0.05 + rnd() * 0.08})`;
-    g.lineWidth = 0.6 + rnd();
-    const x = rnd() * 128;
-    const y = rnd() * 140;
-    const a = rnd() * Math.PI;
-    const l = 4 + rnd() * 14;
-    g.beginPath();
-    g.moveTo(x, y);
-    g.quadraticCurveTo(x + Math.cos(a) * l * 0.5 + rnd() * 3, y + Math.sin(a) * l * 0.5, x + Math.cos(a) * l, y + Math.sin(a) * l);
-    g.stroke();
-  }
-  fiberPattern = c;
-  return c;
-}
 
 function project(p: V3, cosY: number, sinY: number, cosP: number, sinP: number, u: number, ox: number, oy: number): V2 {
   const xr = p[0] * cosY + p[2] * sinY;
@@ -184,11 +165,24 @@ function bakedFace(design: LanternDesignId, light: string, ink: HTMLCanvasElemen
   return canvas;
 }
 
+type Proj = (v: V3) => V2;
+
+interface BodyCtx {
+  p: DrawLanternParams;
+  u: number;
+  cosY: number;
+  sinY: number;
+  cosP: number;
+  sinP: number;
+  glow: number;
+  simple: boolean;
+  P: Proj;
+}
+
 /**
- * Draws one cube lantern. Returns its screen bounding box (for hit testing).
+ * Draws one lantern on its krathong. Returns its screen bounding box (for hit testing).
  */
 export function drawLantern(ctx: CanvasRenderingContext2D, p: DrawLanternParams): ScreenRect {
-  const design = LANTERN_DESIGNS[p.design];
   const u = p.size / 2;
   const cosY = Math.cos(p.yaw);
   const sinY = Math.sin(p.yaw);
@@ -197,6 +191,7 @@ export function drawLantern(ctx: CanvasRenderingContext2D, p: DrawLanternParams)
   const glow = p.glow;
   const highlight = p.highlight ?? 0;
   const simple = p.size < 26;
+  const shape = p.shape && p.shape !== "box" ? SHAPES[p.shape] : null;
 
   ctx.save();
   ctx.globalAlpha = p.alpha;
@@ -205,9 +200,8 @@ export function drawLantern(ctx: CanvasRenderingContext2D, p: DrawLanternParams)
     ctx.rotate(p.roll);
     ctx.translate(-p.x, -p.y);
   }
-  const P = (v: V3) => project(v, cosY, sinY, cosP, sinP, u, p.x, p.y);
-
-  const dimPaper = mixHex(design.paper, "#20160c", 0.55);
+  const P: Proj = (v: V3) => project(v, cosY, sinY, cosP, sinP, u, p.x, p.y);
+  const b: BodyCtx = { p, u, cosY, sinY, cosP, sinP, glow, simple, P };
 
   // ---------- halo ----------
   if (p.halo !== false && glow > 0.02) {
@@ -221,36 +215,91 @@ export function drawLantern(ctx: CanvasRenderingContext2D, p: DrawLanternParams)
     ctx.restore();
   }
 
+  // top of the lantern on screen (for effects and the offering badge)
+  let topY: number;
+  if (shape) {
+    const t = shape.depth;
+    topY = Math.min(P([0, shape.bbox.y1, t])[1], P([0, shape.bbox.y1, -t])[1]);
+  } else {
+    topY = P([0, HEIGHT, -HALF])[1];
+  }
+  // cy stays FACE_ASPECT above the water for every shape: effects derive the camera tilt from it
   const fxFrame = () => {
     const [cx, cy] = P([0, HEIGHT * 0.5, 0]);
-    const [, ty] = P([0, HEIGHT, -HALF]);
-    return { cx, cy, top: ty, base: p.y, u, time: p.time, seed: p.seed ?? 0, alpha: p.alpha };
+    return { cx, cy, top: topY, base: p.y, u, time: p.time, seed: p.seed ?? 0, alpha: p.alpha };
   };
   if (p.effects?.length && !simple) drawEffects(ctx, p.effects, fxFrame(), "back");
 
-  // ---------- wooden base ----------
-  if (!simple) {
-    const b = 1.28;
-    const bh = -0.16;
-    const top: V3[] = [[-b, 0, b], [b, 0, b], [b, 0, -b], [-b, 0, -b]];
-    const bottom: V3[] = top.map((v) => [v[0], bh, v[2]] as V3);
-    const sides: Array<[number, number, [number, number]]> = [
-      [0, 1, [0, 1]],
-      [1, 2, [1, 0]],
-      [2, 3, [0, -1]],
-      [3, 0, [-1, 0]],
-    ];
-    for (const [i, j, n] of sides) {
-      const nzr = -n[0] * sinY + n[1] * cosY;
-      if (nzr <= 0) continue;
-      ctx.fillStyle = mixHex(design.base, "#000000", 0.35 - nzr * 0.15);
-      quad(ctx, P(top[i]), P(top[j]), P(bottom[j]), P(bottom[i]));
-      ctx.fill();
-    }
-    ctx.fillStyle = mixHex(design.base, p.light, 0.18 * glow);
-    quad(ctx, P(top[0]), P(top[1]), P(top[2]), P(top[3]));
-    ctx.fill();
+  // ---------- krathong (back half) ----------
+  const kp: KrathongParams = { x: p.x, y: p.y, u, yaw: p.yaw, pitch: p.pitch, light: p.light, glow, alpha: p.alpha, time: p.time, seed: p.seed ?? 0, inner: !!shape };
+  drawKrathongBack(ctx, kp);
+
+  if (shape) drawShapeBody(ctx, b, shape);
+  else drawBoxBody(ctx, b);
+
+  // ---------- krathong (front petals + flowers) ----------
+  drawKrathongFront(ctx, kp);
+
+  if (p.effects?.length && !simple) {
+    drawEffects(ctx, p.effects, fxFrame(), "front");
   }
+
+  ctx.restore();
+
+  if (p.offering && p.offering > 0 && p.size >= 16) {
+    const [bx] = P([0, HEIGHT, 0]);
+    drawOfferingBadge(ctx, p.offering, bx, topY, u, p.alpha, p.time);
+  }
+
+  // bounding box: lantern body + the petal ring on the water
+  const pts: V2[] = [];
+  if (shape) {
+    const { x0, x1, y0, y1 } = shape.bbox;
+    const t = shape.depth;
+    for (const x of [x0, x1]) for (const y of [y0, y1]) for (const z of [t, -t]) pts.push(P([x, y, z]));
+  } else {
+    for (const x of [-HALF, HALF]) for (const y of [0, HEIGHT]) for (const z of [-HALF, HALF]) pts.push(P([x, y, z]));
+  }
+  let minX = p.x - KRATHONG_RADIUS * u;
+  let maxX = p.x + KRATHONG_RADIUS * u;
+  let minY = p.y - (KRATHONG_TOP * cosP + KRATHONG_RADIUS * sinP) * u;
+  let maxY = p.y + KRATHONG_RADIUS * sinP * u;
+  for (const [px, py] of pts) {
+    if (px < minX) minX = px;
+    if (py < minY) minY = py;
+    if (px > maxX) maxX = px;
+    if (py > maxY) maxY = py;
+  }
+  if (p.roll) {
+    // rotate the box corners around the anchor and take their bounds
+    const c = Math.cos(p.roll);
+    const s = Math.sin(p.roll);
+    const xs: number[] = [];
+    const ys: number[] = [];
+    for (const [qx, qy] of [
+      [minX, minY],
+      [maxX, minY],
+      [minX, maxY],
+      [maxX, maxY],
+    ]) {
+      const dx = qx - p.x;
+      const dy = qy - p.y;
+      xs.push(p.x + dx * c - dy * s);
+      ys.push(p.y + dx * s + dy * c);
+    }
+    minX = Math.min(...xs);
+    maxX = Math.max(...xs);
+    minY = Math.min(...ys);
+    maxY = Math.max(...ys);
+  }
+  return { x: minX, y: minY, w: maxX - minX, h: maxY - minY };
+}
+
+/** The classic open-top cube */
+function drawBoxBody(ctx: CanvasRenderingContext2D, b: BodyCtx) {
+  const { p, u, cosY, sinY, glow, simple, P } = b;
+  const design = LANTERN_DESIGNS[p.design];
+  const dimPaper = mixHex(design.paper, "#20160c", 0.55);
 
   // classify faces
   const faces = FACES.map((f) => {
@@ -339,38 +388,147 @@ export function drawLantern(ctx: CanvasRenderingContext2D, p: DrawLanternParams)
     ctx.drawImage(glowSprite(p.light), sx - sr, sy - sr * 0.9, sr * 2, sr * 1.8);
     ctx.restore();
   }
+}
 
-  if (p.effects?.length && !simple) {
-    drawEffects(ctx, p.effects, fxFrame(), "front");
+/** screen-space basis of the object axes (x, y, z) for the current view */
+function axes(u: number, cosY: number, sinY: number, cosP: number, sinP: number) {
+  return {
+    ex: [u * cosY, -u * sinY * sinP] as V2,
+    ey: [0, -u * cosP] as V2,
+    ez: [u * sinY, u * cosY * sinP] as V2,
+  };
+}
+
+/** Silhouette lantern: back/side paper band, then the panel facing the camera */
+function drawShapeBody(ctx: CanvasRenderingContext2D, b: BodyCtx, s: ShapeDef) {
+  const { p, u, cosY, sinY, cosP, sinP, glow, simple, P } = b;
+  const design = LANTERN_DESIGNS[p.design];
+  const t = s.depth;
+  const frontSide = cosY >= 0;
+  const zn = frontSide ? t : -t;
+  const facing = Math.abs(cosY);
+  const { ex, ey, ez } = axes(u, cosY, sinY, cosP, sinP);
+  const ox = p.x;
+  const oy = p.y;
+  const dim = (c: string) => (glow < 0.99 ? mixHex(c, "#1c120a", (1 - glow) * 0.62) : c);
+
+  // ---------- paper band joining the two panels ----------
+  const poly = p.size < 80 ? s.coarse : s.fine;
+  const n = poly.length / 2;
+  const fx = ez[0] * t;
+  const fy = ez[1] * t;
+  const all = new Path2D();
+  const lit1 = new Path2D();
+  const lit2 = new Path2D();
+  const rib = simple ? null : new Path2D();
+  let ribOpen = false;
+  let any = false;
+  for (let i = 0; i < n; i++) {
+    const j = (i + 1) % n;
+    const x0 = poly[i * 2];
+    const y0 = poly[i * 2 + 1];
+    const x1 = poly[j * 2];
+    const y1 = poly[j * 2 + 1];
+    const dx = x1 - x0;
+    const dy = y1 - y0;
+    const len = Math.hypot(dx, dy) || 1;
+    const nx = dy / len;
+    const ny = -dx / len;
+    const dz = ny * sinP - nx * sinY * cosP;
+    if (dz <= 0) {
+      ribOpen = false;
+      continue;
+    }
+    any = true;
+    const ax = ox + x0 * ex[0] + y0 * ey[0];
+    const ay = oy + x0 * ex[1] + y0 * ey[1];
+    const bx = ox + x1 * ex[0] + y1 * ey[0];
+    const by = oy + x1 * ex[1] + y1 * ey[1];
+    for (const path of dz > 0.8 ? [all, lit1, lit2] : dz > 0.45 ? [all, lit1] : [all]) {
+      path.moveTo(ax + fx, ay + fy);
+      path.lineTo(bx + fx, by + fy);
+      path.lineTo(bx - fx, by - fy);
+      path.lineTo(ax - fx, ay - fy);
+      path.closePath();
+    }
+    if (rib) {
+      if (!ribOpen) rib.moveTo(ax, ay);
+      rib.lineTo(bx, by);
+      ribOpen = true;
+    }
+  }
+  if (any) {
+    const lit = mixHex(design.paperLit, p.light, 0.5);
+    const mid = mixHex(design.paper, p.light, 0.45);
+    ctx.fillStyle = dim(mixHex(mid, "#3a1c06", 0.2));
+    ctx.fill(all);
+    ctx.globalAlpha = p.alpha * 0.75;
+    ctx.fillStyle = dim(mixHex(mid, lit, 0.35));
+    ctx.fill(lit1);
+    ctx.fillStyle = dim(mixHex(mid, lit, 0.8));
+    ctx.fill(lit2);
+    ctx.globalAlpha = p.alpha;
+    if (rib) {
+      ctx.strokeStyle = rgba(mixHex(design.paper, "#3a2410", 0.55), 0.35);
+      ctx.lineWidth = Math.max(0.5, u * 0.014);
+      ctx.stroke(rib);
+    }
   }
 
+  // ---------- panel facing the camera ----------
+  const tex = !simple && p.textures ? (frontSide ? p.textures.front : p.textures.side) : null;
+  const baked = shapePanel(s, p.design, p.light, tex, frontSide ? "front" : "back", simple);
+  const sgn = frontSide ? 1 : -1;
+  ctx.save();
+  // panel-local coordinates: x as seen on that panel, y up
+  ctx.transform(ex[0] * sgn, ex[1] * sgn, ey[0], ey[1], ox + zn * ez[0], oy + zn * ez[1]);
+  ctx.save();
+  const S = baked.scale;
+  ctx.transform(1 / S, 0, 0, -1 / S, s.bbox.x0 - 1 / S, s.bbox.y1 + 1 / S);
+  ctx.drawImage(baked.canvas, 0, 0);
   ctx.restore();
-
-  if (p.offering && p.offering > 0 && p.size >= 16) {
-    const [bx] = P([0, HEIGHT, 0]);
-    const [, by] = P([0, HEIGHT, -HALF]);
-    drawOfferingBadge(ctx, p.offering, bx, by, u, p.alpha, p.time);
+  ctx.beginPath();
+  traceShape(ctx, s);
+  ctx.restore();
+  const dark = (1 - (0.72 + 0.28 * facing)) * 0.9 + (1 - glow) * 0.62;
+  if (dark > 0.01) {
+    ctx.fillStyle = `rgba(28, 18, 8, ${Math.min(0.85, dark)})`;
+    ctx.fill();
   }
+  // rim highlight where the paper folds over the frame
+  ctx.strokeStyle = rgba(mixHex(design.paperLit, p.light, 0.4), (0.45 + 0.4 * glow) * (0.4 + 0.6 * facing));
+  ctx.lineWidth = Math.max(0.6, u * (simple ? 0.03 : 0.028));
+  ctx.lineJoin = "round";
+  ctx.stroke();
 
-  // bounding box
-  const pts = [
-    ...topCorners,
-    P([-HALF, 0, HALF]),
-    P([HALF, 0, HALF]),
-    P([HALF, 0, -HALF]),
-    P([-HALF, 0, -HALF]),
-  ];
-  let minX = Infinity;
-  let minY = Infinity;
-  let maxX = -Infinity;
-  let maxY = -Infinity;
-  for (const [px, py] of pts) {
-    if (px < minX) minX = px;
-    if (py < minY) minY = py;
-    if (px > maxX) maxX = px;
-    if (py > maxY) maxY = py;
+  if (glow > 0.05) {
+    ctx.save();
+    ctx.globalCompositeOperation = "lighter";
+    // light bleeding through the paper around the candle
+    const flick = 1 + Math.sin(p.time * 9 + (p.seed ?? 0)) * 0.04 + Math.sin(p.time * 5.3) * 0.03;
+    const [sx, sy] = P([0, s.candleY, zn * 0.6]);
+    const sr = u * 1.2 * flick;
+    ctx.globalAlpha = p.alpha * glow * 0.34;
+    ctx.drawImage(glowSprite(p.light), sx - sr, sy - sr * 0.9, sr * 2, sr * 1.8);
+    if (s.id === "moon" && !simple) {
+      // faint lunar halo ring in the panel plane
+      const cy = (s.bbox.y0 + s.bbox.y1) / 2;
+      const r = s.bbox.x1 * 1.16;
+      ctx.save();
+      ctx.transform(ex[0], ex[1], ey[0], ey[1], ox, oy);
+      ctx.beginPath();
+      ctx.arc(0, cy, r, 0, Math.PI * 2);
+      ctx.restore();
+      ctx.globalAlpha = p.alpha * glow * 0.14;
+      ctx.strokeStyle = mixHex(p.light, "#fff6dc", 0.5);
+      ctx.lineWidth = Math.max(0.8, u * 0.035);
+      ctx.stroke();
+      ctx.globalAlpha = p.alpha * glow * 0.07;
+      ctx.lineWidth = Math.max(1.5, u * 0.14);
+      ctx.stroke();
+    }
+    ctx.restore();
   }
-  return { x: minX, y: minY, w: maxX - minX, h: maxY - minY };
 }
 
 /** Soft light halo around a lantern – drawn in its own pass so it never washes over other lanterns */
@@ -437,7 +595,7 @@ export interface FacePick {
  * is under the screen point (sx, sy). Used to open a preview of the photo / sticker / text a visitor taps.
  */
 export function pickLanternFace(
-  p: Pick<DrawLanternParams, "x" | "y" | "size" | "yaw" | "pitch" | "roll">,
+  p: Pick<DrawLanternParams, "x" | "y" | "size" | "yaw" | "pitch" | "roll" | "shape">,
   sx: number,
   sy: number,
 ): FacePick | null {
@@ -455,6 +613,7 @@ export function pickLanternFace(
     sx = p.x + dx * c - dy * s;
     sy = p.y + dx * s + dy * c;
   }
+  if (p.shape && p.shape !== "box") return pickShape(SHAPES[p.shape], p, u, cosY, sinY, cosP, sinP, sx, sy);
   const P = (v: V3) => project(v, cosY, sinY, cosP, sinP, u, p.x, p.y);
   // nearest visible wall first
   const visible = FACES.map((f) => ({ f, nzr: -f.n[0] * sinY + f.n[1] * cosY }))
@@ -475,6 +634,43 @@ export function pickLanternFace(
     const a = (px * by - py * bx) / det;
     const b = (ax * py - ay * px) / det;
     if (a >= 0 && a <= 1 && b >= 0 && b <= 1) return { face: f.key, u: a * TEX_W, v: b * TEX_H };
+  }
+  return null;
+}
+
+const clampTex = (v: number, max: number) => (v < 0 ? 0 : v > max ? max : v);
+
+/** pick on a silhouette lantern: the panel facing the camera, else the paper band (→ side message) */
+function pickShape(s: ShapeDef, p: { x: number; y: number }, u: number, cosY: number, sinY: number, cosP: number, sinP: number, sx: number, sy: number): FacePick | null {
+  const { ex, ey, ez } = axes(u, cosY, sinY, cosP, sinP);
+  const frontSide = cosY >= 0;
+  const t = s.depth;
+  const zn = frontSide ? t : -t;
+  const bandHit = (x: number, y: number): FacePick => ({
+    face: x >= 0 ? "right" : "left",
+    u: TEX_W / 2,
+    v: clampTex(panelToTexture(s, 0, y)[1], TEX_H),
+  });
+  if (Math.abs(cosY) < 0.03) {
+    // edge-on: only the band is visible
+    const z = (sx - p.x) / (u * sinY);
+    const y = (p.y - sy) / (u * cosP);
+    if (Math.abs(z) <= t * 1.05 && y >= s.bbox.y0 && y <= s.bbox.y1) return bandHit(sinY > 0 ? 1 : -1, y);
+    return null;
+  }
+  // nearest plane first (the panel), then slices through the band
+  for (const k of [1, 0.5, 0, -0.5, -1]) {
+    const z = zn * k;
+    const dx = sx - p.x - z * ez[0];
+    const dy = sy - p.y - z * ez[1];
+    const x = dx / ex[0];
+    const y = (dy - x * ex[1]) / ey[1];
+    if (!insidePoly(s.fine, x, y)) continue;
+    if (k === 1) {
+      const [tu, tv] = panelToTexture(s, frontSide ? x : -x, y);
+      return { face: frontSide ? "front" : "back", u: clampTex(tu, TEX_W), v: clampTex(tv, TEX_H) };
+    }
+    return bandHit(x, y);
   }
   return null;
 }

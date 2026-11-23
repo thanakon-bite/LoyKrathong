@@ -6,7 +6,7 @@ import type { Catalog, CatalogItem, OfferingSettings } from "@/types/catalog";
 
 interface CatalogRow {
   id: string;
-  kind: "design" | "effect";
+  kind: "design" | "effect" | "shape";
   code: string;
   name: string;
   description: string;
@@ -54,6 +54,7 @@ export async function getCatalog(opts: { includeInactive?: boolean } = {}): Prom
   return {
     designs: items.filter((i) => i.kind === "design"),
     effects: items.filter((i) => i.kind === "effect"),
+    shapes: items.filter((i) => i.kind === "shape"),
     offering,
     minPaidTotal: MIN_PAID_TOTAL,
   };

@@ -3,10 +3,22 @@ export const LANTERN_DESIGN_IDS = [
   "warm-white",
   "sunset-orange",
   "romantic-pink",
+  "jade-green",
+  "sky-blue",
+  "lavender-dream",
+  "ruby-red",
   "lotus-gold",
   "midnight-indigo",
+  "royal-kanok",
+  "moonlit-sakura",
+  "peacock-jade",
 ] as const;
 export type LanternDesignId = (typeof LANTERN_DESIGN_IDS)[number];
+
+/** Krathong silhouette (sold individually – prices live in catalog_items kind "shape") */
+export const LANTERN_SHAPE_IDS = ["box", "heart", "moon", "rabbit"] as const;
+export type LanternShapeId = (typeof LANTERN_SHAPE_IDS)[number];
+export const isLanternShapeId = (v: string): v is LanternShapeId => (LANTERN_SHAPE_IDS as readonly string[]).includes(v);
 
 export const LANTERN_FONT_IDS = ["sriracha", "charm", "mali", "kanit", "noto-serif-thai"] as const;
 export type LanternFontId = (typeof LANTERN_FONT_IDS)[number];
@@ -61,6 +73,8 @@ export interface DrawingData {
 /** Content a lantern is drawn from – shared by Studio preview, Festival scene and Detail view */
 export interface LanternVisual {
   design: LanternDesignId;
+  /** krathong silhouette (older lanterns: "box") */
+  shape: LanternShapeId;
   /** Light color inside the lantern (#RRGGBB) */
   color: string;
   effects: EffectId[];
@@ -90,6 +104,7 @@ export interface MyLanternSummary {
   displayName: string;
   wishMessage: string;
   design: LanternDesignId;
+  shape: LanternShapeId;
   color: string;
   status: LanternStatus;
   createdAt: string;

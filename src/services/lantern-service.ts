@@ -3,7 +3,7 @@ import { ApiError } from "@/lib/api";
 import { getAdminSupabase } from "@/lib/supabase/admin";
 import { DEFAULT_TEXT_CONFIG } from "@/lib/lantern/designs";
 import { imageConfigSchema, textConfigSchema, type LanternInput } from "@/lib/security/validation";
-import { isEffectId, type EffectId, type LanternDesignId, type MyLanternSummary, type PublicLantern } from "@/types/lantern";
+import { isEffectId, isLanternShapeId, type LanternShapeId, type EffectId, type LanternDesignId, type MyLanternSummary, type PublicLantern } from "@/types/lantern";
 import type { Selection } from "@/types/catalog";
 import { assertOwnedAsset, signMany } from "./storage-service";
 
@@ -15,6 +15,8 @@ export interface LanternRow {
   blessing_message: string;
   extra_message: string;
   lantern_type: string;
+  /** added by migration 20261123000001_shapes – missing on older rows / before it runs */
+  lantern_shape?: string | null;
   lantern_color: string;
   decoration: string | null;
   effects: string[] | null;
@@ -29,8 +31,10 @@ export interface LanternRow {
   expires_at: string | null;
 }
 
+const shapeOf = (v: string | null | undefined): LanternShapeId => (v && isLanternShapeId(v) ? v : "box");
+
 export const PUBLIC_COLUMNS =
-  "id, user_id, display_name, wish_message, blessing_message, extra_message, lantern_type, lantern_color, decoration, effects, offering_amount, text_config, image_config, drawing_data, image_url, status, created_at, released_at, expires_at";
+  "id, user_id, display_name, wish_message, blessing_message, extra_message, lantern_type, lantern_shape, lantern_color, decoration, effects, offering_amount, text_config, image_config, drawing_data, image_url, status, created_at, released_at, expires_at";
 
 const LEGACY_DECORATION: Record<string, EffectId[]> = { "thai-frame": ["thai-frame"], "sparkle-petals": ["stars", "petals"] };
 
@@ -65,6 +69,7 @@ async function toPublic(rows: LanternRow[], opts: { ownerView?: boolean } = {}):
       blessingMessage: r.blessing_message,
       extraMessage: r.extra_message,
       design: r.lantern_type as LanternDesignId,
+      shape: shapeOf(r.lantern_shape),
       color: r.lantern_color,
       effects: effectsOf(r),
       offering: Number(r.offering_amount ?? 0),
@@ -144,6 +149,7 @@ function rowFromInput(userId: string, input: LanternInput, sel: Selection, reque
     blessing_message: input.blessingMessage,
     extra_message: input.extraMessage,
     lantern_type: input.design,
+    lantern_shape: input.shape,
     lantern_color: input.color.toUpperCase(),
     decoration: null,
     effects: [...new Set(sel.effects)],
@@ -226,7 +232,7 @@ export async function listOwnerLanterns(userId: string, limit = 100) {
 export async function listMyLanterns(userId: string): Promise<MyLanternSummary[]> {
   const { data, error } = await getAdminSupabase()
     .from("lanterns")
-    .select("id, display_name, wish_message, lantern_type, lantern_color, status, created_at, released_at, expires_at, offering_amount, effects, decoration, packages(name)")
+    .select("id, display_name, wish_message, lantern_type, lantern_shape, lantern_color, status, created_at, released_at, expires_at, offering_amount, effects, decoration, packages(name)")
     .eq("user_id", userId)
     .order("created_at", { ascending: false })
     .limit(100);
@@ -240,6 +246,7 @@ export async function listMyLanterns(userId: string): Promise<MyLanternSummary[]
       displayName: r.display_name,
       wishMessage: r.wish_message,
       design: r.lantern_type as LanternDesignId,
+      shape: shapeOf(r.lantern_shape),
       color: r.lantern_color,
       status: (expired ? "expired" : r.status) as MyLanternSummary["status"],
       createdAt: r.created_at,

@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Brush, Eraser, Redo2, Trash2, Undo2 } from "lucide-react";
+import { Brush, Check, Eraser, Maximize2, Pencil, Redo2, Trash2, Undo2 } from "lucide-react";
 import type { LanternVisual } from "@/types/lantern";
 import { buildFaceTextures, ensureLanternFonts, loadImage, TEX_H, TEX_W } from "@/lib/lantern/texture";
 import { Button } from "@/components/ui/button";
@@ -38,6 +38,19 @@ export function DrawingPad({ visual, value, onChange, active = true }: Props) {
   const drawing = useRef(false);
   const last = useRef<{ x: number; y: number; mx: number; my: number } | null>(null);
   const hasInk = useRef(Boolean(value));
+  /** full-screen drawing mode – on phones the canvas only takes touches here, so the page can still scroll */
+  const [full, setFull] = useState(false);
+  useEffect(() => {
+    if (!full) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setFull(false);
+    window.addEventListener("keydown", onKey);
+    return () => {
+      document.body.style.overflow = prev;
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [full]);
   const initialValue = useRef(value);
 
   // base layer: paper + text + image (WYSIWYG with the lantern)
@@ -183,7 +196,19 @@ export function DrawingPad({ visual, value, onChange, active = true }: Props) {
   };
 
   return (
-    <div className="space-y-4" onKeyDown={onKeyDown}>
+    <div
+      data-draw-full={full || undefined}
+      className={cn(full ? "fixed inset-0 z-[60] flex flex-col gap-3 overflow-y-auto bg-night/95 p-3 pt-[max(0.75rem,env(safe-area-inset-top))] backdrop-blur" : "space-y-4")}
+      onKeyDown={onKeyDown}
+    >
+      {full && (
+        <div className="flex items-center justify-between">
+          <p className="text-sm font-medium text-warm">วาดบนโคม</p>
+          <Button type="button" size="sm" onClick={() => setFull(false)}>
+            <Check /> เสร็จ
+          </Button>
+        </div>
+      )}
       <div className="flex flex-wrap items-center gap-2">
         <div className="flex rounded-full border border-white/10 bg-white/5 p-1" role="radiogroup" aria-label="เครื่องมือ">
           <button
@@ -256,7 +281,13 @@ export function DrawingPad({ visual, value, onChange, active = true }: Props) {
         </span>
       </div>
 
-      <div className="relative mx-auto w-full max-w-sm overflow-hidden rounded-xl border border-gold/30 shadow-[0_0_40px_-10px_rgba(245,185,66,0.6)]" style={{ aspectRatio: `${TEX_W} / ${TEX_H}` }}>
+      <div
+        className={cn(
+          "relative mx-auto w-full overflow-hidden rounded-xl border border-gold/30 shadow-[0_0_40px_-10px_rgba(245,185,66,0.6)]",
+          full ? "max-w-[min(100%,calc((100dvh-15rem)*0.909))]" : "max-w-sm",
+        )}
+        style={{ aspectRatio: `${TEX_W} / ${TEX_H}` }}
+      >
         <canvas ref={baseRef} width={TEX_W} height={TEX_H} className="absolute inset-0 h-full w-full" aria-hidden />
         <canvas
           ref={drawRef}
@@ -264,15 +295,49 @@ export function DrawingPad({ visual, value, onChange, active = true }: Props) {
           height={TEX_H}
           tabIndex={0}
           aria-label="พื้นที่วาดภาพบนด้านหน้าโคม"
-          className={cn("absolute inset-0 h-full w-full touch-none outline-none", tool === "eraser" ? "cursor-cell" : "cursor-crosshair")}
+          className={cn(
+            "absolute inset-0 h-full w-full outline-none",
+            tool === "eraser" ? "cursor-cell" : "cursor-crosshair",
+            // phones: draw only in full-screen mode so a finger on the canvas can still scroll the page
+            full ? "touch-none" : "pointer-events-none sm:pointer-events-auto sm:touch-none",
+          )}
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
           onPointerUp={end}
           onPointerCancel={end}
           onPointerLeave={end}
         />
+        {!full && (
+          <>
+            {/* phones: tap to open the full-screen pad */}
+            <button
+              type="button"
+              onClick={() => setFull(true)}
+              className="absolute inset-0 grid place-items-center bg-night/25 sm:hidden"
+              aria-label="แตะเพื่อเริ่มวาดแบบเต็มจอ"
+            >
+              <span className="flex items-center gap-1.5 rounded-full bg-gold px-4 py-2 text-sm font-medium text-night shadow-lg">
+                <Pencil className="size-4" /> แตะเพื่อวาด
+              </span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setFull(true)}
+              aria-label="ขยายเต็มจอ"
+              className="absolute right-2 top-2 hidden size-8 place-items-center rounded-full bg-night/60 text-warm/80 backdrop-blur hover:text-warm sm:grid"
+            >
+              <Maximize2 className="size-4" />
+            </button>
+          </>
+        )}
       </div>
-      <p className="hidden text-center text-xs text-warm/45 sm:block">วาดหัวใจ ดอกไม้ ดวงดาว หรือเขียนด้วยลายมือของคุณได้เลย · Ctrl+Z เพื่อย้อนกลับ</p>
+      {full ? (
+        <Button type="button" className="mx-auto w-full max-w-sm" onClick={() => setFull(false)}>
+          <Check /> เสร็จ กลับไปหน้าออกแบบ
+        </Button>
+      ) : (
+        <p className="hidden text-center text-xs text-warm/45 sm:block">วาดหัวใจ ดอกไม้ ดวงดาว หรือเขียนด้วยลายมือของคุณได้เลย · Ctrl+Z เพื่อย้อนกลับ</p>
+      )}
     </div>
   );
 }

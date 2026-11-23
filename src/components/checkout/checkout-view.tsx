@@ -10,7 +10,7 @@ import { useAuth } from "@/components/providers/auth-provider";
 import { apiFetch, ClientApiError } from "@/lib/api-client";
 import { dataUrlToBlob } from "@/lib/image-client";
 import { uploadLanternAsset } from "@/lib/upload-client";
-import { LANTERN_DESIGNS } from "@/lib/lantern/designs";
+import { LANTERN_SHAPES, LANTERN_DESIGNS } from "@/lib/lantern/designs";
 import { cn, formatTHB, hashString } from "@/lib/utils";
 import { useCatalog } from "@/hooks/use-catalog";
 import { PricingError, quote, totalProblem } from "@/lib/pricing";
@@ -77,7 +77,7 @@ export function CheckoutView() {
   const priced = useMemo((): { quote: Quote | null; problem: string | null } => {
     if (!catalog || !draft) return { quote: null, problem: null };
     try {
-      const q = quote(catalog, { design: draft.design, effects: draft.effects ?? [], offering: draft.offering ?? 0 });
+      const q = quote(catalog, { design: draft.design, shape: draft.shape, effects: draft.effects ?? [], offering: draft.offering ?? 0 });
       return { quote: q, problem: totalProblem(q.total, catalog.minPaidTotal) };
     } catch (e) {
       return { quote: null, problem: e instanceof PricingError ? e.message : "คำนวณราคาไม่ได้" };
@@ -122,6 +122,7 @@ export function CheckoutView() {
         offering,
         lantern: {
           design: draft.design,
+          shape: draft.shape ?? "box",
           color: draft.color,
           displayName: draft.displayName,
           wishMessage: draft.wishMessage,
@@ -257,6 +258,12 @@ export function CheckoutView() {
                 <span>โคมอธิษฐาน · {LANTERN_DESIGNS[draft.design].nameTh}</span>
                 <span>{q?.lines.find((l) => l.kind === "design") ? formatTHB(q.lines.find((l) => l.kind === "design")!.amount) : "ฟรี"}</span>
               </li>
+              {(draft.shape ?? "box") !== "box" && (
+                <li className="flex justify-between gap-3 text-warm/80">
+                  <span>ทรง{LANTERN_SHAPES[draft.shape].nameTh}</span>
+                  <span>{q?.lines.find((l) => l.kind === "shape") ? formatTHB(q.lines.find((l) => l.kind === "shape")!.amount) : "ฟรี"}</span>
+                </li>
+              )}
               {q?.lines
                 .filter((l) => l.kind === "effect")
                 .map((l) => (

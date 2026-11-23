@@ -16,6 +16,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
 
+const SHAPE_EMOJI: Record<string, string> = { box: "🏮", heart: "💛", moon: "🌕", rabbit: "🐇" };
+
 function ItemRow({ item, onSaved }: { item: CatalogItem; onSaved: () => void }) {
   const [v, setV] = useState(item);
   const [busy, setBusy] = useState(false);
@@ -23,6 +25,8 @@ function ItemRow({ item, onSaved }: { item: CatalogItem; onSaved: () => void }) 
   const icon =
     item.kind === "effect" && isEffectId(item.code) ? (
       <span className="text-xl">{EFFECT_META[item.code].emoji}</span>
+    ) : item.kind === "shape" ? (
+      <span className="text-xl">{SHAPE_EMOJI[item.code] ?? "🪷"}</span>
     ) : (
       <span className="block size-5 rounded" style={{ background: LANTERN_DESIGNS[item.code as LanternDesignId]?.defaultLight ?? "#F5B942" }} />
     );
@@ -143,8 +147,23 @@ export function CatalogAdmin() {
     <div className="space-y-6">
       <OfferingEditor key={`o${rev}`} initial={catalog.offering} onSaved={reload} />
       <section className="space-y-2">
+        <h3 className="font-display text-lg text-warm">รูปทรงกระทง</h3>
+        {catalog.shapes.length ? (
+          <>
+            <p className="text-xs text-warm/45">ราคา 0 = ฟรี · ปิดขาย = ซ่อนจากหน้าออกแบบ · ช่องตัวเลขหลังราคา = ลำดับการแสดง (น้อยขึ้นก่อน)</p>
+            {catalog.shapes.map((i) => (
+              <ItemRow key={`${i.id}${rev}`} item={i} onSaved={reload} />
+            ))}
+          </>
+        ) : (
+          <p className="rounded-2xl border border-amber/30 bg-amber/5 p-3 text-xs text-warm/70">
+            ยังไม่ได้ติดตั้งรูปทรงกระทง – รัน SQL ใน <code>supabase/migrations/20261123000001_shapes.sql</code> ที่ Supabase → SQL Editor ก่อน
+          </p>
+        )}
+      </section>
+      <section className="space-y-2">
         <h3 className="font-display text-lg text-warm">สีโคม</h3>
-        <p className="text-xs text-warm/45">ราคา 0 = ฟรี · ปิดขาย = ซ่อนจากหน้าออกแบบ</p>
+        <p className="text-xs text-warm/45">ราคา 0 = ฟรี · ปิดขาย = ซ่อนจากหน้าออกแบบ · ช่องตัวเลขหลังราคา = ลำดับการแสดง (น้อยขึ้นก่อน)</p>
         {catalog.designs.map((i) => (
           <ItemRow key={`${i.id}${rev}`} item={i} onSaved={reload} />
         ))}

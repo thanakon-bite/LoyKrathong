@@ -22,6 +22,12 @@ export function quote(catalog: Catalog, sel: Selection): Quote {
   if (!design) throw new PricingError("design_unavailable", "แบบโคมนี้ไม่เปิดให้เลือกในขณะนี้");
   if (design.price > 0) lines.push({ kind: "design", code: design.code, name: `สีโคม ${design.name}`, amount: design.price });
 
+  const shapeCode = sel.shape ?? "box";
+  const shape = catalog.shapes.find((s) => s.code === shapeCode && s.isActive);
+  // the classic box is always available (also before shapes exist in the catalog)
+  if (!shape && shapeCode !== "box") throw new PricingError("shape_unavailable", "รูปทรงกระทงนี้ไม่เปิดให้เลือกในขณะนี้");
+  if (shape && shape.price > 0) lines.push({ kind: "shape", code: shape.code, name: `ทรง${shape.name}`, amount: shape.price });
+
   const unique = [...new Set(sel.effects)];
   for (const code of unique) {
     const fx = catalog.effects.find((e) => e.code === code && e.isActive);

@@ -138,6 +138,7 @@ export function LanternPreview({ visual, className, ignite, rotate = true, yawOf
         glow,
         alpha: 1,
         design: v.design,
+        shape: v.shape,
         light: v.color,
         effects: v.effects,
         offering: v.offering,
